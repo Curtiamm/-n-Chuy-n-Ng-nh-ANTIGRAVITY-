@@ -1,0 +1,263 @@
+[
+  {
+    "id": "TS26-0001",
+    "fullName": "Nguyễn Văn Hùng",
+    "email": "thachu1232004@gmail.com",
+    "phone": "0987654321",
+    "identityCard": "187123456",
+    "highschool": "THPT Chuyên Phan Bội Châu",
+    "selectedMajor": "7480201",
+    "method": "academic-record",
+    "score": 28.5,
+    "status": "approved",
+    "registeredAt": "2026-05-20T08:30:00Z",
+    "emailLogs": [
+      {
+        "type": "CONFIRMATION",
+        "subject": "Xác nhận tiếp nhận hồ sơ đăng ký nguyện vọng trực tuyến - Vinh Uni",
+        "sentAt": "2026-05-20T08:31:12Z",
+        "status": "success"
+      },
+      {
+        "type": "RESULT",
+        "subject": "Thông báo kết quả xét tuyển nguyện vọng trực tuyến - Đại Học Vinh",
+        "sentAt": "2026-05-22T14:15:00Z",
+        "status": "success"
+      }
+    ]
+  },
+  {
+    "id": "TS26-0002",
+    "fullName": "Trần Thị Lan",
+    "email": "lanstran99@gmail.com",
+    "phone": "0912345678",
+    "identityCard": "187654321",
+    "highschool": "THPT Huỳnh Thúc Kháng",
+    "selectedMajor": "7140201",
+    "method": "thpt",
+    "score": 27.5,
+    "status": "approved",
+    "registeredAt": "2026-05-21T09:12:00Z",
+    "emailLogs": [
+      {
+        "type": "CONFIRMATION",
+        "subject": "Xác nhận tiếp nhận hồ sơ đăng ký nguyện vọng trực tuyến - Vinh Uni",
+        "sentAt": "2026-05-21T09:13:05Z",
+        "status": "success"
+      },
+      {
+        "type": "RESULT",
+        "subject": "Thông báo kết quả xét tuyển nguyện vọng trực tuyến - Đại Học Vinh",
+        "sentAt": "2026-05-24T10:00:00Z",
+        "status": "success"
+      }
+    ]
+  },
+  {
+    "id": "TS26-0003",
+    "fullName": "Phạm Minh Đức",
+    "email": "ducpham.tech@gmail.com",
+    "phone": "0934567890",
+    "identityCard": "187987654",
+    "highschool": "THPT Lê Hồng Phong",
+    "selectedMajor": "7480101",
+    "method": "national-exam",
+    "score": 920.0,
+    "status": "accepted",
+    "registeredAt": "2026-05-22T10:45:00Z",
+    "emailLogs": [
+      {
+        "type": "CONFIRMATION",
+        "subject": "Xác nhận tiếp nhận hồ sơ đăng ký nguyện vọng trực tuyến - Vinh Uni",
+        "sentAt": "2026-05-22T10:46:17Z",
+        "status": "success"
+      }
+    ]
+  },
+  {
+    "id": "TS26-0004",
+    "fullName": "Lê Thị Mai",
+    "email": "maile02@yahoo.com",
+    "phone": "0965432109",
+    "identityCard": "187234567",
+    "highschool": "THPT Quỳnh Lưu 1",
+    "selectedMajor": "7140231",
+    "method": "academic-record",
+    "score": 25.2,
+    "status": "action_required",
+    "registeredAt": "2026-05-23T14:20:00Z",
+    "emailLogs": [
+      {
+        "type": "CONFIRMATION",
+        "subject": "Xác nhận tiếp nhận hồ sơ đăng ký nguyện vọng trực tuyến - Vinh Uni",
+        "sentAt": "2026-05-23T14:21:45Z",
+        "status": "success"
+      },
+      {
+        "type": "ACTION_REQUIRED",
+        "subject": "Yêu cầu bổ sung học bạ số hóa hồ sơ xét tuyển - Đại Học Vinh",
+        "sentAt": "2026-05-24T08:15:00Z",
+        "status": "success"
+      }
+    ]
+  },
+  {
+    "id": "TS26-0005",
+    "fullName": "Hoàng Anh Tuấn",
+    "email": "tuanha.na@gmail.com",
+    "phone": "0901234567",
+    "identityCard": "187345678",
+    "highschool": "THPT Đô Lương 1",
+    "selectedMajor": "7340101",
+    "method": "thpt",
+    "score": 24.5,
+    "status": "accepted",
+    "registeredAt": "2026-05-24T16:05:00Z",
+    "emailLogs": [
+      {
+        "type": "CONFIRMATION",
+        "subject": "Xác nhận tiếp nhận hồ sơ đăng ký nguyện vọng trực tuyến - Vinh Uni",
+        "sentAt": "2026-05-24T16:07:11Z",
+        "status": "success"
+      }
+    ]
+  },
+  {
+    "id": "TS26-0006",
+    "fullName": "Vũ Phương Thảo",
+    "email": "thaovp2008@gmail.com",
+    "phone": "0977889123",
+    "identityCard": "187456789",
+    "highschool": "THPT Diễn Châu 1",
+    "selectedMajor": "7140217",
+    "method": "academic-record",
+    "score": 28.1,
+    "status": "approved",
+    "registeredAt": "2026-05-25T07:30:00Z",
+    "emailLogs": [
+      {
+        "type": "CONFIRMATION",
+        "subject": "Xác nhận tiếp nhận hồ sơ đăng ký nguyện vọng trực tuyến - Vinh Uni",
+        "sentAt": "2026-05-25T07:31:55Z",
+        "status": "success"
+      },
+      {
+        "type": "RESULT",
+        "subject": "Thông báo kết quả xét tuyển nguyện vọng trực tuyến - Đại Học Vinh",
+        "sentAt": "2026-05-26T15:20:00Z",
+        "status": "success"
+      }
+    ]
+  },
+  {
+    "id": "TS26-0007",
+    "fullName": "Đỗ Hoàng Long",
+    "email": "longdh.it@gmail.com",
+    "phone": "0955667788",
+    "identityCard": "187567890",
+    "highschool": "THPT Chuyên Đại học Vinh",
+    "selectedMajor": "7480201",
+    "method": "direct",
+    "score": 29.0,
+    "status": "approved",
+    "registeredAt": "2026-05-25T11:45:00Z",
+    "emailLogs": [
+      {
+        "type": "CONFIRMATION",
+        "subject": "Xác nhận tiếp nhận hồ sơ đăng ký nguyện vọng trực tuyến - Vinh Uni",
+        "sentAt": "2026-05-25T11:46:12Z",
+        "status": "success"
+      }
+    ]
+  },
+  {
+    "id": "TS26-0008",
+    "fullName": "Phan Thị Ngọc",
+    "email": "ngocpt.vinh@gmail.com",
+    "phone": "0944332211",
+    "identityCard": "187678901",
+    "highschool": "THPT Hà Huy Tập",
+    "selectedMajor": "7340201",
+    "method": "thpt",
+    "score": 23.8,
+    "status": "pending",
+    "registeredAt": "2026-05-26T09:15:00Z",
+    "emailLogs": [
+      {
+        "type": "CONFIRMATION",
+        "subject": "Xác nhận tiếp nhận hồ sơ đăng ký nguyện vọng trực tuyến - Vinh Uni",
+        "sentAt": "2026-05-26T09:16:30Z",
+        "status": "success"
+      }
+    ]
+  },
+  {
+    "id": "TS26-0009",
+    "fullName": "Bùi Quốc Anh",
+    "email": "quocanhbui99@gmail.com",
+    "phone": "0923459876",
+    "identityCard": "187789012",
+    "highschool": "THPT Thanh Chương 1",
+    "selectedMajor": "7520114",
+    "method": "academic-record",
+    "score": 23.5,
+    "status": "accepted",
+    "registeredAt": "2026-05-26T13:40:00Z",
+    "emailLogs": [
+      {
+        "type": "CONFIRMATION",
+        "subject": "Xác nhận tiếp nhận hồ sơ đăng ký nguyện vọng trực tuyến - Vinh Uni",
+        "sentAt": "2026-05-26T13:42:00Z",
+        "status": "success"
+      }
+    ]
+  },
+  {
+    "id": "TS26-0010",
+    "fullName": "Nguyễn Thị Kim Chi",
+    "email": "chintk.marketing@gmail.com",
+    "phone": "0911223344",
+    "identityCard": "187890123",
+    "highschool": "THPT Nam Đàn 1",
+    "selectedMajor": "7340101",
+    "method": "academic-record",
+    "score": 26.2,
+    "status": "approved",
+    "registeredAt": "2026-05-26T15:10:00Z",
+    "emailLogs": [
+      {
+        "type": "CONFIRMATION",
+        "subject": "Xác nhận tiếp nhận hồ sơ đăng ký nguyện vọng trực tuyến - Vinh Uni",
+        "sentAt": "2026-05-26T15:11:45Z",
+        "status": "success"
+      },
+      {
+        "type": "RESULT",
+        "subject": "Thông báo kết quả xét tuyển nguyện vọng trực tuyến - Đại Học Vinh",
+        "sentAt": "2026-05-26T20:00:00Z",
+        "status": "success"
+      }
+    ]
+  },
+  {
+    "id": "TS26-0011",
+    "fullName": "Lê Phước Hải",
+    "email": "haile.phuoc@gmail.com",
+    "phone": "0912112233",
+    "identityCard": "187901234",
+    "highschool": "THPT Thái Hòa",
+    "selectedMajor": "7480201",
+    "method": "thpt",
+    "score": 24.1,
+    "status": "accepted",
+    "registeredAt": "2026-05-27T02:30:00Z",
+    "emailLogs": [
+      {
+        "type": "CONFIRMATION",
+        "subject": "Xác nhận tiếp nhận hồ sơ đăng ký nguyện vọng trực tuyến - Vinh Uni",
+        "sentAt": "2026-05-27T02:32:00Z",
+        "status": "success"
+      }
+    ]
+  }
+]

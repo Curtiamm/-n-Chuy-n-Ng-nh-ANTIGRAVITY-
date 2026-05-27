@@ -1,0 +1,6 @@
+{
+  "name": "Cổng Tuyển Sinh Đại Học Vinh",
+  "description": "Hệ thống tư vấn tuyển sinh Đại học Vinh tích hợp Chatbot AI hỗ trợ 24/7, tra cứu học bổng, điểm chuẩn và nộp hồ sơ nguyện vọng trực tuyến có gửi email phản hồi tự động.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
