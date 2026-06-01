@@ -1421,10 +1421,17 @@ async function startServer() {
       });
 
       let response;
+      const modelsToTry = [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash"
+      ];
+      let lastError: any = null;
+
       try {
         // Try with Google Search tool first (requires paid/billing enabled API key)
         response = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
+          model: "gemini-2.5-flash",
           contents,
           config: {
             systemInstruction,
@@ -1434,28 +1441,33 @@ async function startServer() {
         });
       } catch (searchError: any) {
         console.warn("Gemini Search Grounding failed, trying without Search Grounding:", searchError.message || searchError);
-        try {
-          // Fallback 1: Try without Google Search tool
-          response = await ai.models.generateContent({
-            model: "gemini-3.5-flash",
-            contents,
-            config: {
-              systemInstruction,
-              temperature: 0.7
-            }
-          });
-        } catch (modelError: any) {
-          console.warn("Gemini model failed, falling back to gemini-1.5-flash:", modelError.message || modelError);
-          // Fallback 2: Try with standard stable free model gemini-1.5-flash
-          response = await ai.models.generateContent({
-            model: "gemini-1.5-flash",
-            contents,
-            config: {
-              systemInstruction,
-              temperature: 0.7
-            }
-          });
+        lastError = searchError;
+      }
+
+      // If search grounding failed or threw error, try standard generation without tools on the list of models
+      if (!response) {
+        for (const modelName of modelsToTry) {
+          try {
+            console.log(`Trying model: ${modelName} without Search Grounding...`);
+            response = await ai.models.generateContent({
+              model: modelName,
+              contents,
+              config: {
+                systemInstruction,
+                temperature: 0.7
+              }
+            });
+            console.log(`Successfully generated content using model: ${modelName}`);
+            break;
+          } catch (modelError: any) {
+            console.warn(`Model ${modelName} failed:`, modelError.message || modelError);
+            lastError = modelError;
+          }
         }
+      }
+
+      if (!response) {
+        throw lastError || new Error("All Gemini models failed to generate content.");
       }
 
       const botReply = response.text || "Vinh Uni đã tiếp nhận câu hỏi của em. Thầy/Cô đang kết nối hệ thống dữ liệu để tư vấn kỹ hơn, vui lòng hỏi lại câu khác nhé!";
