@@ -1420,15 +1420,43 @@ async function startServer() {
         });
       });
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents,
-        config: {
-          systemInstruction,
-          temperature: 0.7,
-          tools: [{ googleSearch: {} }]
+      let response;
+      try {
+        // Try with Google Search tool first (requires paid/billing enabled API key)
+        response = await ai.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents,
+          config: {
+            systemInstruction,
+            temperature: 0.7,
+            tools: [{ googleSearch: {} }]
+          }
+        });
+      } catch (searchError: any) {
+        console.warn("Gemini Search Grounding failed, trying without Search Grounding:", searchError.message || searchError);
+        try {
+          // Fallback 1: Try without Google Search tool
+          response = await ai.models.generateContent({
+            model: "gemini-3.5-flash",
+            contents,
+            config: {
+              systemInstruction,
+              temperature: 0.7
+            }
+          });
+        } catch (modelError: any) {
+          console.warn("Gemini model failed, falling back to gemini-1.5-flash:", modelError.message || modelError);
+          // Fallback 2: Try with standard stable free model gemini-1.5-flash
+          response = await ai.models.generateContent({
+            model: "gemini-1.5-flash",
+            contents,
+            config: {
+              systemInstruction,
+              temperature: 0.7
+            }
+          });
         }
-      });
+      }
 
       const botReply = response.text || "Vinh Uni đã tiếp nhận câu hỏi của em. Thầy/Cô đang kết nối hệ thống dữ liệu để tư vấn kỹ hơn, vui lòng hỏi lại câu khác nhé!";
       res.json({ reply: botReply });
