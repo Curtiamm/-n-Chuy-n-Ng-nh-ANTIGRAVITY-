@@ -1,0 +1,34 @@
+[
+  {
+    "id": 1,
+    "question": "Ký túc xá có bao nhiêu chỗ?",
+    "answer": "Ký túc xá Đại học Vinh hiện có tổng cộng khoảng 3.500 chỗ ở cho sinh viên.",
+    "category": "Ký túc xá",
+    "order": 1,
+    "is_active": true
+  },
+  {
+    "id": 2,
+    "question": "Học phí ngành Sư phạm có được miễn không?",
+    "answer": "Có, toàn bộ sinh viên trúng tuyển ngành Sư phạm sẽ được Nhà nước miễn 100% học phí theo Nghị định 116/2020/NĐ-CP.",
+    "category": "Học phí",
+    "order": 2,
+    "is_active": true
+  },
+  {
+    "id": 3,
+    "question": "Hồ sơ xét tuyển trực tuyến cần những gì?",
+    "answer": "Hồ sơ xét tuyển trực tuyến bao gồm: Thông tin cá nhân, CCCD, Số điện thoại, Điểm thi tốt nghiệp THPT hoặc Điểm học bạ, và các ảnh chụp minh chứng kèm theo.",
+    "category": "Hồ sơ đăng ký",
+    "order": 3,
+    "is_active": true
+  },
+  {
+    "id": 4,
+    "question": "Ngành học Công nghệ thông tin đào tạo mấy năm?",
+    "answer": "Chương trình đào tạo Kỹ sư Công nghệ thông tin kéo dài trong 4 năm, trang bị đầy đủ kiến thức về phần mềm, AI, mạng máy tính và an toàn thông tin.",
+    "category": "Ngành học",
+    "order": 4,
+    "is_active": true
+  }
+]

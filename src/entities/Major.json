@@ -1,0 +1,73 @@
+{
+  "name": "Major",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "T\u00ean ng\u00e0nh h\u1ecdc"
+    },
+    "faculty": {
+      "type": "string",
+      "description": "Khoa/Tr\u01b0\u1eddng"
+    },
+    "code": {
+      "type": "string",
+      "description": "M\u00e3 ng\u00e0nh"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "K\u1ef9 thu\u1eadt - C\u00f4ng ngh\u1ec7",
+        "S\u01b0 ph\u1ea1m",
+        "Kinh t\u1ebf",
+        "Y t\u1ebf - S\u1ee9c kh\u1ecfe",
+        "Khoa h\u1ecdc x\u00e3 h\u1ed9i",
+        "Ngo\u1ea1i ng\u1eef",
+        "Ngh\u1ec7 thu\u1eadt",
+        "N\u00f4ng l\u00e2m ng\u01b0"
+      ],
+      "description": "Nh\u00f3m ng\u00e0nh"
+    },
+    "admission_groups": {
+      "type": "string",
+      "description": "T\u1ed5 h\u1ee3p x\u00e9t tuy\u1ec3n (A00, D01,...)"
+    },
+    "score_2023": {
+      "type": "number",
+      "description": "\u0110i\u1ec3m chu\u1ea9n 2023"
+    },
+    "score_2024": {
+      "type": "number",
+      "description": "\u0110i\u1ec3m chu\u1ea9n 2024"
+    },
+    "quota": {
+      "type": "number",
+      "description": "Ch\u1ec9 ti\u00eau tuy\u1ec3n sinh"
+    },
+    "tuition_per_year": {
+      "type": "number",
+      "description": "H\u1ecdc ph\u00ed/n\u0103m (tri\u1ec7u \u0111\u1ed3ng)"
+    },
+    "duration_years": {
+      "type": "number",
+      "description": "Th\u1eddi gian \u0111\u00e0o t\u1ea1o (n\u0103m)"
+    },
+    "description": {
+      "type": "string",
+      "description": "M\u00f4 t\u1ea3 ng\u00e0nh h\u1ecdc"
+    },
+    "career_prospects": {
+      "type": "string",
+      "description": "C\u01a1 h\u1ed9i ngh\u1ec1 nghi\u1ec7p"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "name",
+    "faculty",
+    "category"
+  ]
+}

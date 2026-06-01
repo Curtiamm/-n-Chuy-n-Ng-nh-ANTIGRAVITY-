@@ -1,0 +1,57 @@
+{
+  "name": "FAQ",
+  "type": "object",
+  "properties": {
+    "question": {
+      "type": "string",
+      "description": "C\u00e2u h\u1ecfi"
+    },
+    "answer": {
+      "type": "string",
+      "description": "C\u00e2u tr\u1ea3 l\u1eddi"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "Ng\u00e0nh h\u1ecdc",
+        "H\u1ed3 s\u01a1 \u0111\u0103ng k\u00fd",
+        "H\u1ecdc ph\u00ed",
+        "H\u1ecdc b\u1ed5ng",
+        "K\u00fd t\u00fac x\u00e1",
+        "Kh\u00e1c"
+      ],
+      "description": "Danh m\u1ee5c c\u00e2u h\u1ecfi"
+    },
+    "order": {
+      "type": "number",
+      "description": "Th\u1ee9 t\u1ef1 hi\u1ec3n th\u1ecb"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "question",
+    "answer",
+    "category"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {},
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

@@ -1,0 +1,45 @@
+[
+  {
+    "id": "admin_123",
+    "google_id": "google_admin_123",
+    "email": "admin@vinhuni.edu.vn",
+    "password": "admin123",
+    "name": "Quản trị viên Vinh Uni",
+    "picture": null,
+    "role": "admin",
+    "is_active": true,
+    "created_at": "2026-05-27T08:04:02.345Z"
+  },
+  {
+    "id": "staff_456",
+    "google_id": "google_staff_456",
+    "email": "canbo@vinhuni.edu.vn",
+    "password": "canbo123",
+    "name": "Cán bộ Tuyển sinh",
+    "picture": null,
+    "role": "staff",
+    "is_active": true,
+    "created_at": "2026-05-27T08:04:02.345Z"
+  },
+  {
+    "id": "student_123",
+    "google_id": "google_student_789",
+    "email": "student@gmail.com",
+    "password": "student123",
+    "name": "Thí sinh tự do",
+    "picture": null,
+    "role": "user",
+    "is_active": true,
+    "created_at": "2026-05-27T08:04:02.345Z"
+  },
+  {
+    "id": "user_1779869042347",
+    "google_id": "117742000457966458769",
+    "email": "thachu1232004@gmail.com",
+    "name": "Chung Lê Thành",
+    "picture": "https://lh3.googleusercontent.com/a/ACg8ocKXBCP8MVqT6SaZ6Mq4vu4cAvP4wM2KvY5q3ibDUEMpcHik1ZxL=s96-c",
+    "role": "admin",
+    "is_active": true,
+    "created_at": "2026-05-27T08:04:02.347Z"
+  }
+]

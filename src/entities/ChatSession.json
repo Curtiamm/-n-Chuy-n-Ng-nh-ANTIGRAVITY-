@@ -1,0 +1,47 @@
+{
+  "name": "ChatSession",
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Session identifier"
+    },
+    "user_name": {
+      "type": "string",
+      "description": "T\u00ean ng\u01b0\u1eddi d\u00f9ng (n\u1ebfu c\u00f3)"
+    },
+    "messages": {
+      "type": "array",
+      "description": "L\u1ecbch s\u1eed h\u1ed9i tho\u1ea1i",
+      "items": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ]
+          },
+          "content": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "topic": {
+      "type": "string",
+      "description": "Ch\u1ee7 \u0111\u1ec1 ch\u00ednh c\u1ee7a cu\u1ed9c tr\u00f2 chuy\u1ec7n"
+    },
+    "rating": {
+      "type": "number",
+      "description": "\u0110\u00e1nh gi\u00e1 cu\u1ed9c tr\u00f2 chuy\u1ec7n (1-5)"
+    }
+  },
+  "required": [
+    "session_id"
+  ]
+}
