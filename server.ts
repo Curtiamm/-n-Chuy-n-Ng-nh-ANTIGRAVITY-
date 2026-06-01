@@ -5,6 +5,13 @@ import multer from "multer";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { VINH_UNI_MAJORS, VINH_UNI_SCHOLARSHIPS, GENERAL_ENROLL_GUIDELINES } from "./src/data/vinhUniData";
+import dotenv from "dotenv";
+
+// Load environment variables
+dotenv.config();
+if (fs.existsSync(path.join(process.cwd(), ".env.local"))) {
+  dotenv.config({ path: path.join(process.cwd(), ".env.local"), override: true });
+}
 
 const PORT = 3000;
 const REGISTRATIONS_FILE = path.join(process.cwd(), "registrations.json");
