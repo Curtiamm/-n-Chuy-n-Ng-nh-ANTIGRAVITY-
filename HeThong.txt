@@ -1,0 +1,64 @@
+TÀI LIỆU TÓM TẮT TOÀN BỘ HỆ THỐNG HEULWEN AI - ĐẠI HỌC VINH
+==========================================================
+
+PHẦN 1: MỤC TIÊU & Ý NGHĨA ĐỀ TÀI (Core Purpose)
+----------------------------------------------
+Khi thầy cô hỏi: "Tại sao em lại làm đề tài này và nó giải quyết vấn đề gì?", trả lời theo 4 ý chính:
+1. Tự động hóa 90% công tác tư vấn: Giảm tải cho ban tuyển sinh nhà trường thông qua Trợ lý ảo AI hoạt động 24/7.
+2. Giải quyết vấn đề "Ảo giác AI" (Hallucination): Các chatbot thông thường (như ChatGPT, Gemini bản gốc) thường trả lời sai thông tin cụ thể của từng trường (như điểm chuẩn, học phí). Hệ thống này giải quyết bằng cách tích hợp công nghệ RAG (Retrieval-Augmented Generation) để buộc AI phải trả lời dựa trên tài liệu chính thức của Đại học Vinh.
+3. Hỗ trợ định hướng toàn diện: Tích hợp công cụ khoa học: Trắc nghiệm hướng nghiệp Holland AI và Tính toán dự phóng cơ hội trúng tuyển học bạ.
+4. Chuyển giao thông minh (Human-in-the-loop): Khi gặp các câu hỏi quá chuyên sâu, hệ thống tự động kết nối thí sinh với cán bộ hỗ trợ thông qua Real-time Live Chat.
+
+
+PHẦN 2: KIẾN TRÚC CÔNG NGHỆ (Tech Stack)
+---------------------------------------
+Khi thầy cô hỏi: "Hệ thống này được xây dựng bằng những công nghệ gì?":
+- Frontend (Giao diện):
+  * ReactJS (Vite): Tối ưu hiệu năng, thời gian tải trang nhanh dưới 1 giây.
+  * Tailwind CSS & Framer Motion: Xây dựng giao diện responsive (tương thích mọi thiết bị di động/máy tính) và tạo các hiệu ứng chuyển động mượt mà.
+  * Recharts: Vẽ biểu đồ chuyên nghiệp (Biểu đồ Radar hiển thị tính cách Holland; biểu đồ Cột & Tròn trên Dashboard Admin).
+  * Google OAuth: Đăng nhập nhanh bằng tài khoản Google để định danh thí sinh.
+- Backend (Máy chủ):
+  * Node.js (TypeScript - Express.js): Cung cấp RESTful APIs và xử lý logic nghiệp vụ.
+  * Socket.io (WebSocket): Tạo kết nối hai chiều thời gian thực với độ trễ cực thấp (dưới 200ms) để thí sinh chat trực tiếp với cán bộ tư vấn.
+  * Nodemailer: Tự động gửi thư cảnh báo đến email của cán bộ tuyển sinh khi có thí sinh yêu cầu Live Chat.
+- AI & Database (Trí tuệ nhân tạo và Cơ sở dữ liệu):
+  * Google Gemini Pro (Gemini 2.5 Flash): Dùng để xử lý ngôn ngữ tự nhiên.
+  * Local JSON Database: Dùng tệp JSON cục bộ làm cơ sở dữ liệu lưu trữ để tối ưu hóa thời gian triển khai và tính di động của đồ án.
+
+
+PHẦN 3: CƠ CHẾ RAG (Bản chất hoạt động của AI)
+---------------------------------------------
+[Cực kỳ quan trọng - thầy cô rất hay hỏi: "RAG hoạt động thế nào trong hệ thống của em?" hoặc "Làm sao AI biết chính xác điểm chuẩn?"]
+
+1. Nguồn tri thức: Các văn bản tuyển sinh (.pdf, .docx, .txt) tải lên trang admin sẽ được backend xử lý, cắt nhỏ thành các đoạn khoảng 700 ký tự (chunkText).
+2. Vector hóa (Embedding): Hệ thống sử dụng model "gemini-embedding-2" để chuyển các đoạn văn bản này thành dạng chuỗi số (Vector 768 chiều) và lưu vào file documents.json.
+3. Truy vấn ngữ nghĩa (Semantic Search): Khi thí sinh gửi câu hỏi (Ví dụ: "Ngành CNTT lấy bao nhiêu điểm?"):
+   - Hệ thống vector hóa câu hỏi đó.
+   - Tính toán độ tương đồng Cosine (Cosine Similarity) giữa vector câu hỏi và vector của toàn bộ các đoạn văn bản trong cơ sở dữ liệu.
+   - Lấy ra tối đa 5 đoạn văn bản có độ tương đồng cao nhất (độ khớp > 0.35).
+4. Tạo câu trả lời (Generation): Hệ thống gộp 5 đoạn văn bản này cùng danh sách ngành học chính thức từ majors.json làm Ngữ cảnh (Context), kèm Prompt chỉ dẫn hệ thống ("Bạn là Trợ lý tuyển sinh Đại học Vinh. Chỉ trả lời dựa trên ngữ cảnh này...") gửi lên mô hình Gemini Pro. Mô hình sẽ tổng hợp lại thành câu trả lời tự nhiên, chính xác và gửi về cho thí sinh.
+
+
+PHẦN 4: AN TOÀN, BẢO MẬT & CHỐNG PHÁ HOẠI (Security)
+---------------------------------------------------
+Khi thầy cô hỏi: "Nếu thí sinh cố tình chat tục tĩu, spam liên tục làm cạn kiệt tài khoản API Gemini thì em xử lý thế nào?":
+1. Login Gates (Cổng đăng nhập): Chỉ những học sinh đã đăng nhập qua Google mới sử dụng được tính năng AI nâng cao (Holland test, Đánh giá học bạ).
+2. Rate Limiting (Giới hạn tần suất): Mỗi địa chỉ IP hoặc tài khoản chỉ được gửi tối đa 1 tin nhắn/giây. Nếu gửi nhanh hơn sẽ bị khóa tạm thời 15 giây.
+3. Chặn spam lặp lại: Chặn gửi tin nhắn có nội dung trùng lặp hoàn toàn trong vòng 10 giây. Vượt quá giới hạn sẽ khóa chat 30 giây.
+4. Kiểm duyệt từ ngữ nhạy cảm (Content Moderation): Backend cấu hình một danh sách từ khóa nhạy cảm (gồm từ tục tĩu, chính trị, tệ nạn...). Mọi tin nhắn chứa từ khóa này sẽ bị chặn ngay tại Backend và hiển thị cảnh báo đỏ từ "Hệ thống" để nhắc nhở thí sinh.
+
+
+PHẦN 5: CÔNG CỤ ĐỊNH HƯỚNG AI (Holland & Học bạ số)
+--------------------------------------------------
+Khi thầy cô hỏi: "Holland test và Đánh giá học bạ của em tích hợp AI như thế nào?":
+- Holland Test (RIASEC): Thí sinh trả lời 18 câu hỏi trắc nghiệm hành vi. Backend tính điểm cho 6 nhóm tính cách. AI (Gemini) nhận kết quả điểm số này rồi thực hiện phân tích: đặc điểm tính cách, nghề nghiệp phù hợp ngoài thực tế, và tự đối chiếu để gợi ý các ngành đào tạo tương đương có tại Trường Đại học Vinh.
+- Đánh Giá Học Bạ Số: Người dùng nhập điểm trung bình và tổ hợp môn. Hệ thống tự động truy vấn điểm chuẩn năm ngoái trong majors.json. AI sẽ phân tích khoảng cách điểm (ví dụ: điểm của thí sinh cao hơn điểm chuẩn bao nhiêu) để đưa ra tỉ lệ đỗ (Rất cao, Khá cao, Trung bình, Thấp) kèm lời khuyên tối ưu.
+
+
+PHẦN 6: KINH NGHIỆM TRẢ LỜI PHẢN BIỆN (Defending Tips)
+------------------------------------------------------
+1. Nếu thầy cô hỏi: "Tại sao dùng file JSON cục bộ làm database mà không dùng cơ sở dữ liệu thực sự?"
+   - Trả lời: "Vì đây là phiên bản đồ án chuyên ngành thử nghiệm công nghệ. Dữ liệu tuyển sinh của trường nằm trong khoảng vài chục ngành đào tạo và vài trăm câu hỏi nên file JSON giúp tối ưu hóa bộ nhớ và tốc độ đọc ghi trực tiếp nhanh hơn. Tuy nhiên, kiến trúc code backend Express của em đã được viết theo chuẩn REST API độc lập, nên nếu phát triển lên thực tế, em có thể dễ dàng chuyển đổi sang MongoDB (lưu trữ dạng document tương tự JSON) chỉ bằng việc đổi hàm kết nối mà không cần viết lại logic của ứng dụng."
+2. Nếu thầy cô hỏi: "Làm sao em cập nhật được thông tin tuyển sinh mới khi nhà trường ra thông báo mới?"
+   - Trả lời: "Trong phân hệ Admin, em đã thiết kế chức năng tải văn bản tuyển sinh mới (.pdf, .docx, .txt). Khi tải lên, hệ thống tự động vector hóa tài liệu đó làm giàu thêm kho RAG cho Chatbot AI. Đồng thời, AI cũng tự động đọc lướt văn bản đó để trích xuất chỉ tiêu, học phí mới và tự cập nhật trực tiếp vào danh sách ngành học của hệ thống."
