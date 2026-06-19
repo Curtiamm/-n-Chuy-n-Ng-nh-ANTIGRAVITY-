@@ -8,6 +8,7 @@ import HeulwenChatbot from '../components/chat/HeulwenChatbot';
 import ChatFAB from '../components/chat/ChatFAB';
 import { usePublishedPosts } from '@/hooks/usePosts';
 import { GraduationCap, Award, Globe, Star, Newspaper, Calendar, User, ArrowRight, X, Tag, ChevronLeft, ChevronRight } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 const highlights = [
   { icon: GraduationCap, title: 'Chất lượng đào tạo', desc: 'Được công nhận đạt chuẩn kiểm định chất lượng quốc gia và quốc tế', num: 'Top 10' },
@@ -208,42 +209,27 @@ export default function Home() {
 
         {/* Full Article Modal */}
         {selectedPost && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedPost(null)}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setSelectedPost(null)}>
             <div
-              className="bg-white rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col"
+              className="bg-white rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col animate-fade-rise"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Cover Image */}
-              {selectedPost.coverImage && (
-                <div className="relative h-48 sm:h-64 shrink-0">
-                  <img src={selectedPost.coverImage} alt={selectedPost.title} className="w-full h-full object-cover" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPost(null)}
-                    className="absolute top-4 right-4 p-2 bg-black/40 backdrop-blur-xs rounded-full text-white hover:bg-black/60 transition-colors"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
+              {/* Modal Header */}
+              <div className="p-6 pb-4 border-b border-gray-100 shrink-0 relative bg-white">
+                <button 
+                  type="button" 
+                  onClick={() => setSelectedPost(null)} 
+                  className="absolute top-6 right-6 p-2 text-gray-400 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${categoryColors[selectedPost.category] || 'bg-gray-500/10 text-gray-600 border-gray-500/20'}`}>
+                    <Tag className="w-3 h-3" />
+                    {selectedPost.category}
+                  </span>
                 </div>
-              )}
-
-              {/* Title Section (Separate from image to avoid overflow on mobile) */}
-              <div className="p-6 pb-4 border-b border-gray-100 shrink-0 relative">
-                {!selectedPost.coverImage && (
-                  <button 
-                    type="button" 
-                    onClick={() => setSelectedPost(null)} 
-                    className="absolute top-4 right-4 p-1.5 hover:bg-gray-100 rounded-full transition-colors"
-                  >
-                    <X className="w-5 h-5 text-gray-450" />
-                  </button>
-                )}
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border mb-2.5 ${categoryColors[selectedPost.category] || 'bg-gray-500/10 text-gray-600 border-gray-500/20'}`}>
-                  <Tag className="w-3 h-3" />
-                  {selectedPost.category}
-                </span>
-                <h2 className="font-playfair text-xl md:text-2xl font-bold text-[#0A1931] leading-tight pr-8">{selectedPost.title}</h2>
+                <h2 className="font-playfair text-xl md:text-2xl font-bold text-[#0A1931] leading-tight pr-10">{selectedPost.title}</h2>
                 
                 <div className="flex items-center gap-4 text-xs text-gray-400 font-inter mt-3">
                   {selectedPost.author && (
@@ -255,10 +241,36 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Content Body */}
+              {/* Scrollable Content Body */}
               <div className="p-6 overflow-y-auto flex-1 bg-[#FCFCFD]">
-                <div className="font-inter text-sm text-gray-700 leading-relaxed whitespace-pre-line">
-                  {selectedPost.content}
+                {/* Cover Image inside content */}
+                {selectedPost.coverImage && (
+                  <div className="rounded-2xl overflow-hidden mb-6 h-60 sm:h-80 w-full border border-gray-100 shadow-sm shrink-0">
+                    <img 
+                      src={selectedPost.coverImage} 
+                      alt={selectedPost.title} 
+                      className="w-full h-full object-cover object-center" 
+                    />
+                  </div>
+                )}
+
+                {/* Formatted Markdown Content */}
+                <div className="font-inter text-sm text-gray-700 leading-relaxed">
+                  <ReactMarkdown
+                    components={{
+                      h1: ({node, ...props}) => <h1 className="font-playfair text-xl font-bold text-[#0A1931] mt-5 mb-3" {...props} />,
+                      h2: ({node, ...props}) => <h2 className="font-playfair text-lg font-bold text-[#0A1931] mt-4 mb-2.5" {...props} />,
+                      h3: ({node, ...props}) => <h3 className="font-inter text-base font-bold text-[#0A1931] mt-3 mb-2" {...props} />,
+                      p: ({node, ...props}) => <p className="mb-4 text-gray-600 leading-relaxed" {...props} />,
+                      ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-4 text-gray-600 space-y-1.5" {...props} />,
+                      ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-4 text-gray-600 space-y-1.5" {...props} />,
+                      li: ({node, ...props}) => <li className="text-sm" {...props} />,
+                      strong: ({node, ...props}) => <strong className="font-bold text-[#0A1931]" {...props} />,
+                      a: ({node, ...props}) => <a className="text-[#1A3A6B] hover:text-[#C8A951] underline transition-colors" target="_blank" rel="noopener noreferrer" {...props} />
+                    }}
+                  >
+                    {selectedPost.content}
+                  </ReactMarkdown>
                 </div>
               </div>
             </div>
