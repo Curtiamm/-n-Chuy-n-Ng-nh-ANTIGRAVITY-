@@ -1,3 +1,5 @@
+import { User } from 'lucide-react';
+
 export function UserList({ users, onRoleChange }) {
   return (
     <div>
@@ -5,7 +7,13 @@ export function UserList({ users, onRoleChange }) {
       <div className="space-y-2">
         {users.map(u => (
           <div key={u.id} className="flex items-center gap-4 px-4 py-3 bg-white/10 rounded-xl border border-white/10">
-            {u.picture && <img src={u.picture} alt={u.name} className="w-9 h-9 rounded-full shrink-0" />}
+            {u.picture ? (
+              <img src={u.picture} alt={u.name} className="w-9 h-9 rounded-full shrink-0 object-cover border border-white/10" />
+            ) : (
+              <div className="w-9 h-9 rounded-full bg-[#0A1931] border border-white/10 text-white/80 flex items-center justify-center text-xs font-bold uppercase shrink-0">
+                {u.name ? u.name.charAt(0) : <User className="w-4 h-4" />}
+              </div>
+            )}
             <div className="flex-1 min-w-0">
               <div className="font-inter text-sm font-medium text-white truncate">{u.name}</div>
               <div className="font-inter text-xs text-white/50 truncate">{u.email}</div>
