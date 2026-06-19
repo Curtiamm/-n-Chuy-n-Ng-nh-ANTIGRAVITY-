@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Save, X, Image, FileText, Tag, AlignLeft, Upload, Loader2, Trash2 } from 'lucide-react';
+import { Save, X, Image, FileText, Tag, AlignLeft, Upload, Loader2, Trash2, Bold, Italic, Heading2, Heading3, List, ListOrdered, Link } from 'lucide-react';
 
 const CATEGORIES = ['Thông báo', 'Tin tức', 'Hướng dẫn', 'Tuyển sinh', 'Sự kiện', 'Học bổng'];
 
@@ -17,6 +17,61 @@ export function PostForm({ post, onSave, onCancel }) {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  const insertFormat = (type) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const selectedText = text.substring(start, end);
+
+    let replacement = '';
+    let cursorOffset = 0;
+
+    switch (type) {
+      case 'bold':
+        replacement = `**${selectedText || 'chữ_in_đậm'}**`;
+        cursorOffset = selectedText ? 0 : 2;
+        break;
+      case 'italic':
+        replacement = `*${selectedText || 'chữ_in_nghiêng'}*`;
+        cursorOffset = selectedText ? 0 : 1;
+        break;
+      case 'h2':
+        replacement = `\n## ${selectedText || 'Tiêu đề nhóm'}\n`;
+        cursorOffset = selectedText ? 0 : 0;
+        break;
+      case 'h3':
+        replacement = `\n### ${selectedText || 'Tiêu đề phụ'}\n`;
+        cursorOffset = selectedText ? 0 : 0;
+        break;
+      case 'ul':
+        replacement = `\n- ${selectedText || 'Mục danh sách'}`;
+        break;
+      case 'ol':
+        replacement = `\n1. ${selectedText || 'Mục danh sách'}`;
+        break;
+      case 'link':
+        replacement = `[${selectedText || 'Tên liên kết'}](https://vinhuni.edu.vn)`;
+        cursorOffset = selectedText ? 0 : 1;
+        break;
+      default:
+        return;
+    }
+
+    const newContent = text.substring(0, start) + replacement + text.substring(end);
+    setForm(prev => ({ ...prev, content: newContent }));
+
+    // Refocus and place cursor
+    setTimeout(() => {
+      textarea.focus();
+      const newCursorPos = start + replacement.length - cursorOffset;
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -215,15 +270,81 @@ export function PostForm({ post, onSave, onCancel }) {
       </div>
 
       <div>
-        <label className={labelClass}>Nội dung bài viết (Markdown)</label>
-        <textarea
-          className={inputClass + ' resize-none font-mono text-xs leading-relaxed'}
-          rows={10}
-          placeholder={"Viết nội dung chi tiết bằng Markdown...\n\n**In đậm**, *in nghiêng*, - danh sách\n1. Danh sách đánh số"}
-          value={form.content}
-          onChange={e => setForm({...form, content: e.target.value})}
-          required
-        />
+        <label className={labelClass}>Nội dung bài viết (Hỗ trợ định dạng)</label>
+        <div className="border border-white/10 rounded-xl overflow-hidden bg-[#0A1931]">
+          {/* Format Toolbar */}
+          <div className="flex items-center gap-1 px-3 py-2 bg-white/5 border-b border-white/10 select-none">
+            <button
+              type="button"
+              onClick={() => insertFormat('bold')}
+              title="Bôi đậm"
+              className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
+            >
+              <Bold className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertFormat('italic')}
+              title="In nghiêng"
+              className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
+            >
+              <Italic className="w-4 h-4" />
+            </button>
+            <div className="w-px h-4 bg-white/10 mx-1" />
+            <button
+              type="button"
+              onClick={() => insertFormat('h2')}
+              title="Tiêu đề lớn (H2)"
+              className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
+            >
+              <Heading2 className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertFormat('h3')}
+              title="Tiêu đề nhỏ (H3)"
+              className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
+            >
+              <Heading3 className="w-4 h-4" />
+            </button>
+            <div className="w-px h-4 bg-white/10 mx-1" />
+            <button
+              type="button"
+              onClick={() => insertFormat('ul')}
+              title="Danh sách dấu chấm"
+              className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
+            >
+              <List className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertFormat('ol')}
+              title="Danh sách số"
+              className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
+            >
+              <ListOrdered className="w-4 h-4" />
+            </button>
+            <div className="w-px h-4 bg-white/10 mx-1" />
+            <button
+              type="button"
+              onClick={() => insertFormat('link')}
+              title="Thêm liên kết"
+              className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
+            >
+              <Link className="w-4 h-4" />
+            </button>
+          </div>
+          
+          <textarea
+            ref={textareaRef}
+            className="w-full bg-transparent border-0 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-0 resize-none font-mono text-xs leading-relaxed"
+            rows={10}
+            placeholder={"Viết nội dung chi tiết bài viết. Bạn có thể bôi đen chữ rồi nhấn các nút định dạng phía trên..."}
+            value={form.content}
+            onChange={e => setForm({...form, content: e.target.value})}
+            required
+          />
+        </div>
       </div>
 
       <div className="flex justify-end gap-3 pt-2">
