@@ -18,8 +18,13 @@ export default function Navbar({ onOpenChat }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
   const location = useLocation();
   const { user, isAuthenticated, logout, navigateToLogin } = useAuth();
+
+  useEffect(() => {
+    setAvatarError(false);
+  }, [user]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -109,8 +114,13 @@ export default function Navbar({ onOpenChat }) {
                 className="flex items-center gap-2 p-1 hover:bg-[#C8A951]/10 rounded-full border border-oxford/10 transition-all duration-300 cursor-pointer"
                 title={user?.full_name || user?.email}
               >
-                {user?.picture ? (
-                  <img src={user.picture} alt="Avatar" className="w-8 h-8 rounded-full object-cover border border-oxford/10" />
+                {user?.picture && !avatarError ? (
+                  <img 
+                    src={user.picture} 
+                    alt="Avatar" 
+                    onError={() => setAvatarError(true)} 
+                    className="w-8 h-8 rounded-full object-cover border border-oxford/10" 
+                  />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-[#0A1931] text-white flex items-center justify-center text-xs font-bold uppercase">
                     {user?.full_name ? user.full_name.charAt(0) : <User className="w-4 h-4" />}
