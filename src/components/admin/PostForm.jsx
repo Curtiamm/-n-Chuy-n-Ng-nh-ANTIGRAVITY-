@@ -180,6 +180,28 @@ export function PostForm({ post, onSave, onCancel }) {
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const visualEditorRef = useRef(null);
+  const savedRangeRef = useRef(null);
+
+  // Helper to save selection range inside contentEditable
+  const saveRange = () => {
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      // Verify selection is within our editor
+      if (visualEditorRef.current && visualEditorRef.current.contains(range.commonAncestorContainer)) {
+        savedRangeRef.current = range;
+      }
+    }
+  };
+
+  // Helper to restore selection range back to contentEditable
+  const restoreRange = () => {
+    if (savedRangeRef.current) {
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(savedRangeRef.current);
+    }
+  };
 
   // Sync content to contentEditable on mount or when post changes
   useEffect(() => {
@@ -218,17 +240,26 @@ export function PostForm({ post, onSave, onCancel }) {
 
   const runCommand = (command, arg = null) => {
     if (editorMode !== 'visual') return;
-    document.execCommand(command, false, arg);
     if (visualEditorRef.current) {
       visualEditorRef.current.focus();
     }
+    restoreRange();
+    document.execCommand(command, false, arg);
+    saveRange();
     handleVisualChange();
   };
 
   const insertLink = () => {
+    saveRange();
     const url = prompt('Nhập liên kết (URL):', 'https://');
     if (url) {
-      runCommand('createLink', url);
+      if (visualEditorRef.current) {
+        visualEditorRef.current.focus();
+      }
+      restoreRange();
+      document.execCommand('createLink', false, url);
+      saveRange();
+      handleVisualChange();
     }
   };
 
@@ -518,6 +549,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 {/* Undo / Redo */}
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runCommand('undo')}
                   title="Hoàn tác (Ctrl+Z)"
                   className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
@@ -526,6 +558,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 </button>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runCommand('redo')}
                   title="Làm lại (Ctrl+Y)"
                   className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
@@ -552,6 +585,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 {/* Bold, Italic, Underline */}
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runCommand('bold')}
                   title="Bôi đậm (Ctrl+B)"
                   className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
@@ -560,6 +594,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 </button>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runCommand('italic')}
                   title="In nghiêng (Ctrl+I)"
                   className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
@@ -568,6 +603,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 </button>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runCommand('underline')}
                   title="Gạch chân (Ctrl+U)"
                   className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
@@ -580,6 +616,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 {/* Alignment */}
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runCommand('justifyLeft')}
                   title="Căn lề trái"
                   className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
@@ -588,6 +625,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 </button>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runCommand('justifyCenter')}
                   title="Căn giữa"
                   className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
@@ -596,6 +634,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 </button>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runCommand('justifyRight')}
                   title="Căn lề phải"
                   className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
@@ -604,6 +643,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 </button>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runCommand('justifyFull')}
                   title="Căn đều 2 bên"
                   className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
@@ -617,6 +657,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 <div className="relative group flex items-center">
                   <button
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     title="Chọn màu chữ"
                     className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer flex items-center gap-1"
                   >
@@ -634,6 +675,7 @@ export function PostForm({ post, onSave, onCancel }) {
                       <button
                         key={item.hex}
                         type="button"
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => runCommand('foreColor', item.hex)}
                         title={item.label}
                         className="w-5 h-5 rounded-full border border-white/20 hover:scale-110 transition-transform cursor-pointer"
@@ -648,6 +690,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 {/* Lists */}
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runCommand('insertUnorderedList')}
                   title="Danh sách dấu chấm"
                   className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
@@ -656,6 +699,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 </button>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runCommand('insertOrderedList')}
                   title="Danh sách đánh số"
                   className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
@@ -668,6 +712,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 {/* Link & Eraser */}
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={insertLink}
                   title="Chèn liên kết URL"
                   className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
@@ -676,6 +721,7 @@ export function PostForm({ post, onSave, onCancel }) {
                 </button>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runCommand('removeFormat')}
                   title="Xóa định dạng"
                   className="p-1.5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors cursor-pointer"
@@ -689,7 +735,12 @@ export function PostForm({ post, onSave, onCancel }) {
                 ref={visualEditorRef}
                 contentEditable
                 onInput={handleVisualChange}
-                onBlur={handleVisualChange}
+                onBlur={() => {
+                  saveRange();
+                  handleVisualChange();
+                }}
+                onMouseUp={saveRange}
+                onKeyUp={saveRange}
                 className="w-full bg-[#081528] px-5 py-4 text-sm text-white placeholder:text-white/30 focus:outline-none min-h-[300px] overflow-y-auto max-h-[500px] leading-relaxed font-inter select-text"
                 style={{ outline: 'none' }}
                 placeholder="Nhập nội dung bài viết giống như soạn thảo văn bản Word..."
