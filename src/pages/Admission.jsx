@@ -44,8 +44,9 @@ const ADMISSION_METHODS = [
 const TIMELINE = [
   { date: 'T1/2026', title: 'Mở đăng ký xét học bạ đợt 1', status: 'done' },
   { date: 'T3/2026', title: 'Đăng ký xét học bạ đợt 2', status: 'done' },
-  { date: 'T5/2026', title: 'Thi tốt nghiệp THPT', status: 'current' },
-  { date: 'T7/2026', title: 'Công bộ điểm thi & mở đăng ký nguyện vọng', status: 'upcoming' },
+  { date: 'T5/2026', title: 'Đăng ký thi tốt nghiệp THPT', status: 'done' },
+  { date: 'T6/2026', title: 'Thi tốt nghiệp THPT & nộp hồ sơ xét tuyển sớm', status: 'current' },
+  { date: 'T7/2026', title: 'Công bố điểm thi & đăng ký nguyện vọng Bộ GD&ĐT', status: 'upcoming' },
   { date: 'T8/2026', title: 'Xét tuyển và công bố kết quả', status: 'upcoming' },
   { date: 'T9/2026', title: 'Nhập học chính thức', status: 'upcoming' },
 ];
