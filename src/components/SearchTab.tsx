@@ -331,7 +331,7 @@ export default function SearchTab() {
                         <p className="text-gray-600">
                           <strong className="text-gray-800">Phương thức tuyển:</strong>{" "}
                           <span className="capitalize">
-                            {student.method === "academic-record" ? "Xét Học Bạ" : student.method === "thpt" ? "Điểm thi THPT" : "Hình thức khác"}
+                            {student.method === "academic-record" ? "Xét Học Bạ" : student.method === "thpt" ? "Điểm thi THPT" : student.method === "national-exam" ? "Đánh giá năng lực" : "Tuyển thẳng & Ưu tiên"}
                           </span>
                         </p>
                         <p className="text-gray-600"><strong className="text-gray-800">Điểm số quy đổi:</strong> <span className="bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded font-mono font-bold text-xs">{student.score}đ</span></p>

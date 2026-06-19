@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import Navbar from '../components/layout/Navbar';
 import Footer from '../components/layout/Footer';
 import HeulwenChatbot from '../components/chat/HeulwenChatbot';
@@ -24,6 +25,15 @@ const KTX_INFO = [
 export default function Tuition() {
   const [chatOpen, setChatOpen] = useState(false);
   const [tab, setTab] = useState('tuition');
+  const location = useLocation();
+
+  useEffect(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const tabParam = queryParams.get('tab');
+    if (tabParam && ['tuition', 'scholarship', 'ktx'].includes(tabParam)) {
+      setTab(tabParam);
+    }
+  }, [location.search]);
 
   // --- Scholarship Quiz States ---
   const [gpa, setGpa] = useState("");

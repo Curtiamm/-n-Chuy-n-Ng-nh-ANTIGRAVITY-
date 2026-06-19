@@ -41,5 +41,15 @@
     "role": "admin",
     "is_active": true,
     "created_at": "2026-05-27T08:04:02.347Z"
+  },
+  {
+    "id": "user_1780799822537",
+    "google_id": "105121461516182956575",
+    "email": "thachu17082004@gmail.com",
+    "name": "Chung Lê Thành",
+    "picture": "https://lh3.googleusercontent.com/a/ACg8ocIL9GJ2bn-fZuwzfX5pkJj0ZfRSFQ-GOxf6vlQI8pm3XJZfzCI=s96-c",
+    "role": "user",
+    "is_active": true,
+    "created_at": "2026-06-07T02:37:02.537Z"
   }
 ]

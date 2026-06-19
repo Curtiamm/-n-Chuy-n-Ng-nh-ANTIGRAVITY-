@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local databases and user uploads
+uploads/
+live_chats.json
+crawled_links.json
+documents.json

@@ -49,24 +49,26 @@ export default function HeroSection({ onOpenChat }) {
           </p>
 
           {/* Search / Chat Trigger */}
-          <form onSubmit={handleSearch} className="flex items-center gap-3 max-w-xl">
-            <div className="flex-1 flex items-center gap-3 bg-white/95 backdrop-blur-md rounded-2xl px-5 py-4 shadow-2xl border border-white/20">
+          <form onSubmit={handleSearch} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 max-w-xl">
+            <div 
+              onClick={() => window.dispatchEvent(new CustomEvent('open-global-search'))}
+              className="flex-1 flex items-center gap-3 bg-white/95 backdrop-blur-md rounded-2xl px-4 py-3.5 sm:px-5 sm:py-4 shadow-2xl border border-white/20 cursor-pointer"
+            >
               <Search className="w-5 h-5 text-[#1A3A6B] shrink-0" />
               <input
                 type="text"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
-                placeholder="Hỏi về ngành học, điểm chuẩn, học phí..."
-                className="flex-1 bg-transparent font-inter text-[#0A1931] placeholder-gray-400 outline-none text-sm"
-                onClick={onOpenChat}
+                placeholder="Tìm ngành học, học phí, học bổng, quy chế..."
+                className="flex-1 bg-transparent font-inter text-[#0A1931] placeholder-gray-400 outline-none text-sm pointer-events-none"
                 readOnly
               />
-              <span className="text-xs font-inter text-[#C8A951] font-medium hidden md:block">AI</span>
+              <span className="text-xs font-inter text-[#C8A951] font-medium hidden sm:block">AI</span>
             </div>
             <button
               type="button"
               onClick={onOpenChat}
-              className="px-6 py-4 bg-[#C8A951] hover:bg-[#967C34] text-white font-semibold font-inter rounded-2xl transition-all duration-300 flex items-center gap-2 whitespace-nowrap shadow-lg hover:shadow-xl"
+              className="px-6 py-3.5 sm:py-4 bg-[#C8A951] hover:bg-[#967C34] text-white font-semibold font-inter rounded-2xl transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap shadow-lg hover:shadow-xl"
             >
               Hỏi ngay
               <ArrowRight className="w-4 h-4" />

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronDown, ChevronUp, MessageSquare, TrendingUp, Clock, Users, GraduationCap, Download, Info, Banknote, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -14,8 +14,14 @@ const categoryBadge = {
   'Nông lâm ngư': { label: 'NÔNG LÂM NGƯ', color: 'bg-green-600' },
 };
 
-export default function MajorRow({ major, onAskAI }) {
+export default function MajorRow({ major, onAskAI, isSelected }) {
   const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (isSelected) {
+      setExpanded(true);
+    }
+  }, [isSelected]);
 
   const badge = categoryBadge[major.category] || { label: major.category?.toUpperCase(), color: 'bg-gray-600' };
 
@@ -28,7 +34,16 @@ export default function MajorRow({ major, onAskAI }) {
     : [];
 
   return (
-    <div className={`border rounded-2xl overflow-hidden transition-all duration-300 bg-white ${expanded ? 'border-[#1A3A6B]/30 shadow-lg' : 'border-gray-200 hover:border-[#C8A951]/40 hover:shadow-md'}`}>
+    <div 
+      id={`major-${major.code}`}
+      className={`border rounded-2xl overflow-hidden transition-all duration-500 bg-white ${
+        isSelected 
+          ? 'border-[#C8A951] ring-2 ring-[#C8A951]/30 shadow-xl scale-[1.01]' 
+          : expanded 
+          ? 'border-[#1A3A6B]/30 shadow-lg' 
+          : 'border-gray-200 hover:border-[#C8A951]/40 hover:shadow-md'
+      }`}
+    >
       {/* Card Header */}
       <div className="px-6 pt-5 pb-4">
         {/* Top row: badge + code */}

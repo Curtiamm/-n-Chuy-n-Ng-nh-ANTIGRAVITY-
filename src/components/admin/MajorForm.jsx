@@ -15,8 +15,8 @@ export function MajorForm({ major, onSave, onCancel }) {
           { key: 'faculty', label: 'Khoa', type: 'text' },
           { key: 'code', label: 'Mã ngành', type: 'text' },
           { key: 'admission_groups', label: 'Tổ hợp xét tuyển', type: 'text' },
-          { key: 'score_2023', label: 'Điểm chuẩn 2023', type: 'number' },
-          { key: 'score_2024', label: 'Điểm chuẩn 2024', type: 'number' },
+          { key: 'score_2023', label: 'Điểm Học bạ (2025)', type: 'number' },
+          { key: 'score_2024', label: 'Điểm thi THPT (2025)', type: 'number' },
           { key: 'quota', label: 'Chỉ tiêu', type: 'number' },
           { key: 'tuition_per_year', label: 'Học phí/năm (triệu)', type: 'number' },
         ].map(f => (

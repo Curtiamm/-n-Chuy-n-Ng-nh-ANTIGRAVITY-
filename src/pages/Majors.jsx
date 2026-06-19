@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useLocation } from 'react-router-dom';
 import { localDB } from '@/lib/localDB';
 import Navbar from '../components/layout/Navbar';
 import Footer from '../components/layout/Footer';
@@ -17,10 +18,40 @@ export default function Majors() {
   const [category, setCategory] = useState('Tất cả');
   const [sortBy, setSortBy] = useState('name');
 
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+  const selectCode = queryParams.get('select');
+  const searchParam = queryParams.get('search');
+
   const { data: majors = [], isLoading } = useQuery({
     queryKey: ['majors'],
     queryFn: () => localDB.Major.filter({ is_active: true }),
   });
+
+  // Handle URL query parameters
+  useEffect(() => {
+    if (searchParam) {
+      setSearch(searchParam);
+    }
+  }, [searchParam]);
+
+  useEffect(() => {
+    if (selectCode && majors.length > 0) {
+      const target = majors.find(m => m.code === selectCode);
+      if (target) {
+        setCategory('Tất cả');
+        setSearch('');
+        
+        const timer = setTimeout(() => {
+          const element = document.getElementById(`major-${selectCode}`);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 300);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [selectCode, majors]);
 
   const openChatAbout = (majorName) => {
     setChatInitialMsg(`Cho tôi biết chi tiết về ngành ${majorName}?`);
@@ -111,7 +142,12 @@ export default function Majors() {
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               {filtered.map(major => (
-                <MajorRow key={major.id} major={major} onAskAI={openChatAbout} />
+                <MajorRow 
+                  key={major.id} 
+                  major={major} 
+                  onAskAI={openChatAbout} 
+                  isSelected={major.code === selectCode} 
+                />
               ))}
             </div>
           )}
@@ -123,7 +159,7 @@ export default function Majors() {
       </main>
 
       <Footer />
-      <HeulwenChatbot isOpen={chatOpen} onClose={() => setChatOpen(false)} />
+      <HeulwenChatbot isOpen={chatOpen} onClose={() => setChatOpen(false)} initialMessage={chatInitialMsg} />
       <ChatFAB onClick={() => setChatOpen(true)} isOpen={chatOpen} />
     </div>
   );

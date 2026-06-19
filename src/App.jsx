@@ -13,6 +13,8 @@ import Tuition from './pages/Tuition';
 import FAQPage from './pages/FAQ';
 import Admin from './pages/Admin';
 import Login from './pages/Login';
+import DocumentViewer from './pages/DocumentViewer';
+import Recommendation from './pages/Recommendation';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '1081822452367-dummyclientidvinhuni.apps.googleusercontent.com';
 
@@ -25,6 +27,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/majors" element={<Majors />} />
+              <Route path="/recommendation" element={<Recommendation />} />
               <Route path="/admission" element={<Admission />} />
               <Route path="/tuition" element={<Tuition />} />
               <Route path="/faq" element={<FAQPage />} />
@@ -37,6 +40,7 @@ function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route path="/document/:id" element={<DocumentViewer />} />
               <Route path="*" element={<PageNotFound />} />
             </Routes>
           </Router>

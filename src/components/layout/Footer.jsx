@@ -36,6 +36,7 @@ export default function Footer() {
             <ul className="space-y-3">
               {[
                 { label: 'Danh sách ngành học', path: '/majors' },
+                { label: 'Gợi ý ngành học', path: '/recommendation' },
                 { label: 'Điểm chuẩn', path: '/majors' },
                 { label: 'Thông tin tuyển sinh', path: '/admission' },
                 { label: 'Học phí & Học bổng', path: '/tuition' },

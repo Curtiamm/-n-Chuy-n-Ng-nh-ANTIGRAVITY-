@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useLocation } from 'react-router-dom';
 import { localDB } from '@/lib/localDB';
 import Navbar from '../components/layout/Navbar';
 import Footer from '../components/layout/Footer';
@@ -17,8 +18,15 @@ const CATEGORY_COLORS = {
   'Khác': 'bg-gray-100 text-gray-600',
 };
 
-function FAQItem({ faq }) {
-  const [open, setOpen] = useState(false);
+function FAQItem({ faq, initialOpen }) {
+  const [open, setOpen] = useState(initialOpen || false);
+
+  useEffect(() => {
+    if (initialOpen) {
+      setOpen(true);
+    }
+  }, [initialOpen]);
+
   return (
     <div className={`border rounded-xl overflow-hidden transition-all duration-300 bg-white ${open ? 'border-[#C8A951]/50 shadow-md' : 'border-gray-100 hover:border-[#C8A951]/20'}`}>
       <button
@@ -53,7 +61,7 @@ function FAQItem({ faq }) {
 }
 
 const FALLBACK_FAQS = [
-  { id: '1', question: 'Đại học Vinh có những phương thức xét tuyển nào?', answer: 'Năm 2026, Đại học Vinh xét tuyển bằng 3 phương thức chính: (1) Xét điểm thi tốt nghiệp THPT, (2) Xét học bạ THPT, (3) Xét điểm thi Đánh giá năng lực của ĐHQG Hà Nội/TP.HCM.', category: 'Hồ sơ đăng ký' },
+  { id: '1', question: 'Đại học Vinh có những phương thức xét tuyển nào?', answer: 'Năm 2026, Đại học Vinh xét tuyển bằng 4 phương thức chính: (1) Xét điểm thi tốt nghiệp THPT, (2) Xét học bạ THPT, (3) Xét điểm thi Đánh giá năng lực của ĐHQG Hà Nội/TP.HCM, (4) Xét tuyển thẳng và Ưu tiên xét tuyển theo quy chế.', category: 'Hồ sơ đăng ký' },
   { id: '2', question: 'Điểm chuẩn năm 2024 của các ngành là bao nhiêu?', answer: 'Điểm chuẩn 2024 dao động từ 18 đến 25 điểm tuỳ ngành. Các ngành Y tế, Kỹ thuật, Kinh tế thường có điểm chuẩn cao hơn (22-25 điểm). Các ngành Sư phạm và Khoa học xã hội thường từ 18-22 điểm.', category: 'Ngành học' },
   { id: '3', question: 'Học phí ngành Sư phạm có được miễn không?', answer: 'Có. Sinh viên Sư phạm được Nhà nước hỗ trợ học phí theo Nghị định 116/2020/NĐ-CP. Sau khi tốt nghiệp, nếu không công tác trong ngành giáo dục 2 năm trở lên, sẽ phải hoàn trả lại kinh phí hỗ trợ.', category: 'Học phí' },
   { id: '4', question: 'Làm thế nào để đăng ký ký túc xá?', answer: 'Sinh viên đăng ký KTX qua Cổng thông tin sinh viên tại sv.vinhuni.edu.vn. Điều kiện: là SV chính quy, không có nhà riêng tại TP. Vinh. Đặt cọc 1 tháng khi nhận phòng. Hợp đồng ký theo từng học kỳ.', category: 'Ký túc xá' },
@@ -65,6 +73,16 @@ export default function FAQPage() {
   const [chatOpen, setChatOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('Tất cả');
+  const location = useLocation();
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const searchParam = params.get('search');
+    if (searchParam) {
+      setSearch(searchParam);
+      setCategory('Tất cả');
+    }
+  }, [location.search]);
 
   const { data: faqs = [] } = useQuery({
     queryKey: ['faqs'],
@@ -130,7 +148,7 @@ export default function FAQPage() {
           {/* FAQ List */}
           <div className="space-y-3 mb-12">
             {filtered.map(faq => (
-              <FAQItem key={faq.id} faq={faq} />
+              <FAQItem key={faq.id} faq={faq} initialOpen={faq.question === search} />
             ))}
             {filtered.length === 0 && (
               <div className="text-center py-16">

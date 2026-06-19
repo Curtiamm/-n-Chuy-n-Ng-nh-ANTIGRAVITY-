@@ -8,9 +8,9 @@ export function MajorList({ majors, role, onCreate, onUpdate, onDelete }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <h1 className="font-playfair text-2xl font-bold text-white">Quản lý ngành học</h1>
-        <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 px-4 py-2 bg-[#C8A951] text-white rounded-xl font-inter text-sm font-medium hover:bg-[#967C34]">
+        <button type="button" onClick={() => setShowAdd(true)} className="flex items-center justify-center gap-2 px-4 py-2 bg-[#C8A951] text-white rounded-xl font-inter text-sm font-medium hover:bg-[#967C34] shrink-0">
           <Plus className="w-4 h-4" /> Thêm ngành
         </button>
       </div>

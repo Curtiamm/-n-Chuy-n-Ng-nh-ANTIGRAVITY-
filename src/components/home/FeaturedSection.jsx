@@ -60,7 +60,7 @@ export default function FeaturedSection({ onOpenChat }) {
               </div>
               <h3 className="font-playfair text-lg font-semibold text-[#0A1931] mb-2">{f.title}</h3>
               <p className="font-inter text-sm text-gray-500 leading-relaxed">{f.desc}</p>
-              <div className="mt-4 flex items-center gap-1 text-[#C8A951] text-sm font-medium font-inter opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+              <div className="mt-4 flex items-center gap-1 text-[#C8A951] text-sm font-medium font-inter opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300">
                 Xem chi tiết <ArrowRight className="w-4 h-4" />
               </div>
               {/* Gold corner accent */}

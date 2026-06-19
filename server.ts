@@ -6,6 +6,11 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { VINH_UNI_MAJORS, VINH_UNI_SCHOLARSHIPS, GENERAL_ENROLL_GUIDELINES } from "./src/data/vinhUniData";
 import dotenv from "dotenv";
+import { createRequire } from "module";
+import nodemailer from "nodemailer";
+const require = createRequire(import.meta.url);
+const pdf = require("pdf-parse");
+const mammoth = require("mammoth");
 
 // Load environment variables
 dotenv.config();
@@ -19,6 +24,7 @@ const MAJORS_FILE = path.join(process.cwd(), "majors.json");
 const FAQS_FILE = path.join(process.cwd(), "faqs.json");
 const USERS_FILE = path.join(process.cwd(), "users.json");
 const POSTS_FILE = path.join(process.cwd(), "posts.json");
+const DOCUMENTS_FILE = path.join(process.cwd(), "documents.json");
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 
 // Ensure uploads directory exists
@@ -128,6 +134,110 @@ interface Post {
   publishedAt: string | null;
 }
 
+interface DocumentChunk {
+  text: string;
+  embedding: number[];
+}
+
+interface AIDocument {
+  id: string;
+  original_name: string;
+  file_name?: string;
+  full_text?: string;
+  created_at: string;
+  issued_at: string;
+  is_outdated: boolean;
+  chunk_count: number;
+  chunks: DocumentChunk[];
+}
+
+// Anti-spam and sensitive topic validation helper
+const SENSITIVE_KEYWORDS = [
+  // Vulgar words (Vietnamese)
+  "đm", "đéo", "clm", "vcl", "cứt", "chịch", "loz", "lồn", "buồi", "cặc", "vờ lờ", "mẹ mày", "đĩ", "chó đẻ",
+  // Off-topic / Illegal / Toxic
+  "cờ bạc", "cá độ", "lô đề", "đánh bài", "ma túy", "thuốc lắc", "bóng cười", "đâm chém", "giết người", "tự tử", "hack tài khoản", "bẻ khóa", "kẹo mút", "phim sex", "hiếp dâm",
+  // Politics
+  "phản động", "biểu tình", "lật đổ", "chính quyền", "nhà nước", "chính trị", "đảng cộng sản"
+];
+
+// In-memory rate limiting dictionary
+const ipRateLimit: Record<string, {
+  lastMessageTime: number;
+  messageCount: number;
+  blockUntil: number;
+  duplicateCount: number;
+  lastContent: string;
+}> = {};
+
+function checkSpamAndSensitive(ip: string, content: string): { isViolating: boolean; reason: string } {
+  const now = Date.now();
+  const lowerContent = content.trim().toLowerCase();
+  
+  if (ipRateLimit[ip] && ipRateLimit[ip].blockUntil > now) {
+    const secondsLeft = Math.ceil((ipRateLimit[ip].blockUntil - now) / 1000);
+    return { 
+      isViolating: true, 
+      reason: `Bạn đang bị tạm khóa do spam. Vui lòng thử lại sau ${secondsLeft} giây.` 
+    };
+  }
+
+  if (!ipRateLimit[ip]) {
+    ipRateLimit[ip] = {
+      lastMessageTime: 0,
+      messageCount: 0,
+      blockUntil: 0,
+      duplicateCount: 0,
+      lastContent: ""
+    };
+  }
+
+  const record = ipRateLimit[ip];
+
+  if (content.length > 1500) {
+    return {
+      isViolating: true,
+      reason: "Tin nhắn quá dài (tối đa 1500 ký tự). Vui lòng rút ngắn nội dung."
+    };
+  }
+
+  if (lowerContent === record.lastContent && (now - record.lastMessageTime) < 10000) {
+    record.duplicateCount++;
+    if (record.duplicateCount >= 2) {
+      record.blockUntil = now + 30000; // block for 30 seconds
+      record.duplicateCount = 0;
+      return {
+        isViolating: true,
+        reason: "Bạn đang gửi các tin nhắn trùng lặp. Tài khoản của bạn bị tạm khóa 30 giây."
+      };
+    }
+  } else {
+    record.duplicateCount = 0;
+  }
+
+  if (record.lastMessageTime > 0 && (now - record.lastMessageTime) < 1000) {
+    record.blockUntil = now + 15000; // block for 15 seconds
+    return {
+      isViolating: true,
+      reason: "Bạn đang gửi tin nhắn quá nhanh. Vui lòng đợi và thử lại sau."
+    };
+  }
+
+  for (const keyword of SENSITIVE_KEYWORDS) {
+    if (lowerContent.includes(keyword)) {
+      return {
+        isViolating: true,
+        reason: "Tin nhắn của bạn chứa từ ngữ nhạy cảm hoặc không phù hợp."
+      };
+    }
+  }
+
+  record.lastMessageTime = now;
+  record.lastContent = lowerContent;
+  return { isViolating: false, reason: "" };
+}
+
+
 // Lazy Initialize Gemini API Client
 let aiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI {
@@ -142,32 +252,195 @@ function getGeminiClient(): GoogleGenAI {
         headers: {
           "User-Agent": "aistudio-build",
         },
+        timeout: 30000, // Max 30 seconds timeout per model call
+        retryOptions: {
+          attempts: 1, // Disable automatic SDK retries to fail fast and fall back
+        },
       },
     });
   }
   return aiClient;
 }
 
+let searchAiClient: GoogleGenAI | null = null;
+function getSearchGeminiClient(): GoogleGenAI {
+  if (!searchAiClient) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) {
+      throw new Error("GEMINI_API_KEY environment variable is required");
+    }
+    searchAiClient = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+        timeout: 30000, // Max 30 seconds timeout per model call
+        retryOptions: {
+          attempts: 1, // Fail fast
+        },
+      },
+    });
+  }
+  return searchAiClient;
+}
+
 // Database Helpers
-function readRegistrations(): Registration[] {
+const LIVE_CHATS_FILE = path.join(process.cwd(), "live_chats.json");
+
+interface LiveChatMessage {
+  sender: "user" | "staff";
+  senderName: string;
+  content: string;
+  timestamp: string;
+}
+
+interface LiveChatSession {
+  id: string;
+  user_name: string;
+  user_email: string;
+  status: "waiting" | "active" | "resolved";
+  assigned_staff_id: string | null;
+  assigned_staff_name: string | null;
+  created_at: string;
+  updated_at: string;
+  messages: LiveChatMessage[];
+}
+
+function readLiveChats(): LiveChatSession[] {
   try {
-    if (!fs.existsSync(REGISTRATIONS_FILE)) return [];
-    return JSON.parse(fs.readFileSync(REGISTRATIONS_FILE, "utf-8"));
+    if (!fs.existsSync(LIVE_CHATS_FILE)) return [];
+    return JSON.parse(fs.readFileSync(LIVE_CHATS_FILE, "utf-8"));
   } catch (error) {
-    console.error("Error reading registrations:", error);
+    console.error("Error reading live chats:", error);
     return [];
   }
 }
 
-function writeRegistrations(data: Registration[]): boolean {
+function writeLiveChats(data: LiveChatSession[]): boolean {
   try {
-    fs.writeFileSync(REGISTRATIONS_FILE, JSON.stringify(data, null, 2), "utf-8");
+    fs.writeFileSync(LIVE_CHATS_FILE, JSON.stringify(data, null, 2), "utf-8");
     return true;
   } catch (error) {
-    console.error("Error writing registrations:", error);
+    console.error("Error writing live chats:", error);
     return false;
   }
 }
+
+async function sendNotificationToStaff(subject: string, message: string, chatUrl: string) {
+  const providers = (process.env.NOTIFICATION_PROVIDERS || "web").split(",").map(p => p.trim().toLowerCase());
+  
+  console.log(`[Notification] Dispatching notification via: ${providers.join(", ")}`);
+  
+  // 1. Email notification
+  if (providers.includes("email")) {
+    try {
+      const smtpHost = process.env.SMTP_HOST;
+      const smtpPort = parseInt(process.env.SMTP_PORT || "587");
+      const smtpUser = process.env.SMTP_USER;
+      const smtpPass = process.env.SMTP_PASS;
+      
+      if (smtpHost && smtpUser && smtpPass) {
+        let staffEmails: string[] = [];
+        try {
+          if (fs.existsSync(USERS_FILE)) {
+            const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
+            staffEmails = users
+              .filter((u: any) => u.is_active && (u.role === "admin" || u.role === "staff"))
+              .map((u: any) => u.email);
+          }
+        } catch (err) {
+          console.error("Error reading staff emails for notification:", err);
+        }
+        
+        if (staffEmails.length > 0) {
+          const transporter = nodemailer.createTransport({
+            host: smtpHost,
+            port: smtpPort,
+            secure: smtpPort === 465,
+            auth: {
+              user: smtpUser,
+              pass: smtpPass
+            }
+          });
+          
+          const mailOptions = {
+            from: `"Vinh Uni Live Chat Alert" <${smtpUser}>`,
+            to: staffEmails.join(", "),
+            subject: subject,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+                <div style="background-color: #1A3A6B; color: white; padding: 20px; text-align: center;">
+                  <h2 style="margin: 0; font-family: 'Playfair Display', Georgia, serif; color: #C8A951;">Vinh Uni Admissions</h2>
+                  <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.8;">Hệ thống thông báo tuyển sinh hỗ trợ trực tuyến</p>
+                </div>
+                <div style="padding: 24px; color: #0A1931; line-height: 1.6;">
+                  <h3 style="margin-top: 0; color: #1A3A6B;">🔔 Thí sinh đang đợi hỗ trợ trực tuyến</h3>
+                  <p>${message}</p>
+                  <p style="margin-bottom: 25px;">Vui lòng nhấp vào nút bên dưới để tiếp nhận và phản hồi trực tiếp cho thí sinh từ trang quản trị:</p>
+                  <div style="text-align: center; margin: 30px 0;">
+                    <a href="${chatUrl}" target="_blank" style="background-color: #C8A951; color: #0A1931; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: all 0.2s;">
+                      Tiếp Nhận Chat Trực Tuyến
+                    </a>
+                  </div>
+                  <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 25px 0;" />
+                  <p style="color: #64748b; font-size: 11px; text-align: center; margin: 0;">
+                    Đây là email thông báo tự động từ cổng hỗ trợ live chat Trường Đại học Vinh.
+                  </p>
+                </div>
+              </div>
+            `
+          };
+          
+          await transporter.sendMail(mailOptions);
+          console.log(`[Notification] Email sent successfully to ${staffEmails.length} staff members.`);
+        } else {
+          console.warn("[Notification] No active staff/admin email accounts found to send email alerts.");
+        }
+      } else {
+        console.warn("[Notification] Email credentials (SMTP_HOST, SMTP_USER, SMTP_PASS) not fully configured in .env.local.");
+      }
+    } catch (err) {
+      console.error("[Notification] Failed to send email alert:", err);
+    }
+  }
+  
+  // 2. Pushover notification
+  if (providers.includes("pushover")) {
+    try {
+      const userKey = process.env.PUSHOVER_USER_KEY;
+      const appToken = process.env.PUSHOVER_APP_TOKEN;
+      
+      if (userKey && appToken) {
+        const response = await fetch("https://api.pushover.net/1/messages.json", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token: appToken,
+            user: userKey,
+            message: `${message}\nLink: ${chatUrl}`,
+            title: subject,
+            url: chatUrl,
+            url_title: "Tiếp Nhận Chat"
+          })
+        });
+        
+        if (response.ok) {
+          console.log("[Notification] Pushover notification sent successfully.");
+        } else {
+          const errText = await response.text();
+          console.error(`[Notification] Pushover failed: ${response.status} - ${errText}`);
+        }
+      } else {
+        console.warn("[Notification] Pushover credentials (PUSHOVER_USER_KEY, PUSHOVER_APP_TOKEN) not configured in .env.local.");
+      }
+    } catch (err) {
+      console.error("[Notification] Failed to send Pushover alert:", err);
+    }
+  }
+}
+
+
 
 function readMajors(): Major[] {
   try {
@@ -315,6 +588,333 @@ function writePosts(data: Post[]): boolean {
   }
 }
 
+function readDocuments(): AIDocument[] {
+  try {
+    if (!fs.existsSync(DOCUMENTS_FILE)) return [];
+    return JSON.parse(fs.readFileSync(DOCUMENTS_FILE, "utf-8"));
+  } catch (error) {
+    console.error("Error reading documents:", error);
+    return [];
+  }
+}
+
+function writeDocuments(data: AIDocument[]): boolean {
+  try {
+    fs.writeFileSync(DOCUMENTS_FILE, JSON.stringify(data, null, 2), "utf-8");
+    return true;
+  } catch (error) {
+    console.error("Error writing documents:", error);
+    return false;
+  }
+}
+
+async function updateMajorsFromDocumentText(text: string): Promise<void> {
+  const majors = readMajors();
+  if (majors.length === 0) return;
+
+  const ai = getGeminiClient();
+  const prompt = `
+    Bạn là hệ thống phân tích dữ liệu tuyển sinh tự động của Đại học Vinh.
+    Dưới đây là nội dung văn bản tuyển sinh mới nhất vừa được ban hành:
+    \"\"\"
+    ${text}
+    \"\"\"
+
+    Dưới đây là danh sách các ngành đào tạo hiện tại trong hệ thống (gồm mã ngành và tên ngành):
+    ${JSON.stringify(majors.map(m => ({ code: m.code, name: m.name })), null, 2)}
+
+    Nhiệm vụ của bạn là đọc kỹ văn bản tuyển sinh và trích xuất ra các thông tin cập nhật mới nhất cho năm học 2026.
+    Chỉ trích xuất các thông tin sau nếu văn bản có đề cập rõ ràng:
+    1. Chỉ tiêu tuyển sinh (quota) -> trích xuất số nguyên.
+    2. Học phí mỗi năm (tuition_per_year) -> số nguyên (VNĐ).
+    3. Điểm xét tuyển THPT / Học bạ năm gần nhất (ví dụ: chuyển đổi thành score_2024 hoặc score_2023).
+    4. Tổ hợp môn xét tuyển (admission_groups) -> ví dụ: "A00, A01, D01".
+
+    Trả về kết quả dưới dạng một mảng JSON các đối tượng cập nhật. Mỗi đối tượng bắt buộc phải có trường "code" (mã ngành) khớp với danh sách trên để hệ thống cập nhật chính xác.
+    Định dạng JSON yêu cầu:
+    [
+      {
+        "code": "mã_ngành_chính_xác",
+        "quota": số_chỉ_tiêu_mới (optional),
+        "tuition_per_year": học_phí_mới (optional),
+        "admission_groups": "tổ_hợp_mới" (optional)
+      }
+    ]
+
+    Lưu ý quan trọng: Chỉ trả về JSON nguyên bản, không viết thêm bất kỳ từ ngữ nào khác ngoài khối JSON. Nếu văn bản không có thông tin cập nhật nào, trả về mảng rỗng [].
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-lite",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json"
+      }
+    });
+
+    const jsonText = response.text || "[]";
+    const updates = JSON.parse(jsonText.trim());
+    if (Array.isArray(updates) && updates.length > 0) {
+      let updatedCount = 0;
+      updates.forEach(up => {
+        if (!up.code) return;
+        const idx = majors.findIndex(m => m.code === up.code);
+        if (idx !== -1) {
+          if (up.quota !== undefined) {
+            majors[idx].quota = up.quota;
+            updatedCount++;
+          }
+          if (up.tuition_per_year !== undefined) {
+            majors[idx].tuition_per_year = up.tuition_per_year;
+            updatedCount++;
+          }
+          if (up.admission_groups !== undefined) {
+            majors[idx].admission_groups = up.admission_groups;
+            updatedCount++;
+          }
+        }
+      });
+      if (updatedCount > 0) {
+        writeMajors(majors);
+        console.log(`[Database Update] Automatically updated ${updatedCount} fields in majors.json based on the newly uploaded document!`);
+      }
+    }
+  } catch (err) {
+    console.error("[Database Update] Failed to update structured majors database:", err);
+  }
+}
+
+// Document Upload & Processing Helpers
+const docStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e6);
+    const ext = path.extname(file.originalname) || ".txt";
+    cb(null, `doc_${uniqueSuffix}${ext}`);
+  },
+});
+const uploadDocument = multer({
+  storage: docStorage,
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB max
+  fileFilter: (req, file, cb) => {
+    const allowed = /\.(pdf|docx|txt)$/i;
+    if (allowed.test(path.extname(file.originalname))) {
+      cb(null, true);
+    } else {
+      cb(new Error("Chỉ hỗ trợ file dạng: PDF, DOCX, TXT"));
+    }
+  },
+});
+
+async function extractTextFromPdf(buffer: Buffer): Promise<string> {
+  try {
+    const data = await pdf(buffer);
+    return data.text || "";
+  } catch (e: any) {
+    console.error("Error parsing PDF:", e);
+    throw new Error("Không thể đọc tệp PDF: " + e.message);
+  }
+}
+
+async function extractTextFromDocx(buffer: Buffer): Promise<string> {
+  try {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value || "";
+  } catch (e: any) {
+    console.error("Error parsing DOCX:", e);
+    throw new Error("Không thể đọc tệp DOCX: " + e.message);
+  }
+}
+
+async function extractTextFromTxt(buffer: Buffer): Promise<string> {
+  return buffer.toString("utf-8");
+}
+
+async function extractDateFromText(text: string): Promise<string> {
+  const sampleText = text.length > 6000 
+    ? text.substring(0, 3000) + "\n...\n" + text.substring(text.length - 3000)
+    : text;
+  
+  try {
+    const ai = getGeminiClient();
+    const prompt = `Đọc văn bản tuyển sinh sau đây và trích xuất ngày ký hoặc ngày ban hành chính thức của văn bản này.
+Trả về một chuỗi JSON duy nhất chứa thuộc tính "issuedDate" định dạng YYYY-MM-DD (Ví dụ: { "issuedDate": "2026-06-07" }).
+Nếu không thể xác định hoặc không tìm thấy ngày cụ thể trong văn bản, hãy trả về { "issuedDate": null }.
+Văn bản:
+${sampleText}`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-lite",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+      }
+    });
+
+    const reply = response.text || "{}";
+    const result = JSON.parse(reply.trim());
+    
+    if (result.issuedDate && /^\d{4}-\d{2}-\d{2}$/.test(result.issuedDate)) {
+      return result.issuedDate;
+    }
+  } catch (e) {
+    console.error("Error extracting date via Gemini:", e);
+  }
+  
+  return new Date().toISOString().split("T")[0];
+}
+
+function chunkText(text: string, size = 700, overlap = 150): string[] {
+  if (!text) return [];
+  const chunks: string[] = [];
+  let index = 0;
+  
+  while (index < text.length) {
+    let chunk = text.substring(index, index + size);
+    
+    if (index + size < text.length) {
+      const lastPeriod = chunk.lastIndexOf(".");
+      const lastNewline = chunk.lastIndexOf("\n");
+      const endBoundary = Math.max(lastPeriod, lastNewline);
+      if (endBoundary > size / 2) {
+        chunk = chunk.substring(0, endBoundary + 1);
+      }
+    }
+    
+    const cleaned = chunk.trim();
+    if (cleaned.length > 10) {
+      chunks.push(cleaned);
+    }
+    
+    index += chunk.length - overlap;
+    if (chunk.length <= overlap) {
+      break;
+    }
+  }
+  
+  return chunks;
+}
+
+async function generateEmbedding(text: string): Promise<number[]> {
+  try {
+    const ai = getGeminiClient();
+    const response = await ai.models.embedContent({
+      model: "models/gemini-embedding-2",
+      contents: text
+    });
+    
+    if (response.embeddings && response.embeddings[0] && response.embeddings[0].values) {
+      return response.embeddings[0].values;
+    }
+    throw new Error("No embedding values returned");
+  } catch (e: any) {
+    console.error("Error generating embedding:", e);
+    throw new Error("Lỗi tạo vector embedding: " + e.message);
+  }
+}
+
+async function generateEmbeddingsForChunks(chunks: string[]): Promise<number[][]> {
+  const embeddings: number[][] = [];
+  const BATCH_SIZE = 5; // Safe batch size
+  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+    const batch = chunks.slice(i, i + BATCH_SIZE);
+    const promises = batch.map(chunk => generateEmbedding(chunk));
+    const batchResults = await Promise.all(promises);
+    embeddings.push(...batchResults);
+  }
+  return embeddings;
+}
+
+function cosineSimilarity(vecA: number[], vecB: number[]): number {
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < vecA.length; i++) {
+    dotProduct += vecA[i] * vecB[i];
+    normA += vecA[i] * vecA[i];
+    normB += vecB[i] * vecB[i];
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+
+
+interface CachedLink {
+  query: string;
+  url: string;
+  title: string;
+  crawledAt: string;
+}
+
+const CACHED_LINKS_FILE = path.join(process.cwd(), "crawled_links.json");
+
+function readCachedLinks(): CachedLink[] {
+  try {
+    if (!fs.existsSync(CACHED_LINKS_FILE)) {
+      console.log(`[Cache] Cache file ${CACHED_LINKS_FILE} does not exist yet.`);
+      return [];
+    }
+    const data = JSON.parse(fs.readFileSync(CACHED_LINKS_FILE, "utf-8"));
+    console.log(`[Cache] Read ${data.length} cached links.`);
+    return data;
+  } catch (error) {
+    console.error("[Cache] Error reading cached links:", error);
+    return [];
+  }
+}
+
+function writeCachedLinks(data: CachedLink[]): boolean {
+  try {
+    fs.writeFileSync(CACHED_LINKS_FILE, JSON.stringify(data, null, 2), "utf-8");
+    console.log(`[Cache] Successfully wrote ${data.length} links to ${CACHED_LINKS_FILE}`);
+    return true;
+  } catch (error) {
+    console.error("[Cache] Error writing cached links:", error);
+    return false;
+  }
+}
+
+function saveGroundingMetadata(queries: string[], chunks: any[]) {
+  console.log(`[Grounding] saveGroundingMetadata called with ${queries?.length || 0} queries and ${chunks?.length || 0} chunks.`);
+  if (!chunks || chunks.length === 0) {
+    console.log("[Grounding] No chunks to save.");
+    return;
+  }
+  const cache = readCachedLinks();
+  const queryStr = queries ? queries.join(", ") : "";
+
+  let addedCount = 0;
+  chunks.forEach((chunk) => {
+    if (chunk.web && chunk.web.uri) {
+      const url = chunk.web.uri;
+      const title = chunk.web.title || "";
+
+      // Check if already exists in cache
+      const exists = cache.some((item) => item.url === url);
+      if (!exists) {
+        cache.push({
+          query: queryStr,
+          url: url,
+          title: title,
+          crawledAt: new Date().toISOString()
+        });
+        addedCount++;
+        console.log(`[Grounding] Added link to cache: ${url} (Title: ${title})`);
+      } else {
+        console.log(`[Grounding] Link already exists in cache, skipping: ${url}`);
+      }
+    }
+  });
+
+  if (addedCount > 0) {
+    writeCachedLinks(cache);
+  } else {
+    console.log("[Grounding] No new links added to cache.");
+  }
+}
+
 async function startServer() {
   const app = express();
   app.use(express.json());
@@ -379,6 +979,162 @@ async function startServer() {
   });
 
   // ----------------------------------------
+  // RECOMMENDATION SYSTEM API
+  // ----------------------------------------
+  app.post("/api/recommendations/holland", async (req: Request, res: Response) => {
+    try {
+      const { scores, userInfo } = req.body;
+      if (!scores) {
+        res.status(400).json({ error: "Missing scores in request body" });
+        return;
+      }
+
+      const majors = readMajors().filter(m => m.is_active);
+      const majorsDataStr = majors.map(m => `- ${m.name} (${m.code}, Khoa: ${m.faculty}, Lĩnh vực: ${m.category}): ${m.description} | Cơ hội việc làm: ${m.career_prospects}`).join("\n");
+
+      const prompt = `Bạn là một chuyên gia tư vấn hướng nghiệp xuất sắc của Trường Đại học Vinh.
+Dưới đây là điểm số trắc nghiệm tính cách Holland (RIASEC) của thí sinh tuyển sinh (thang điểm từ 3 đến 15 cho mỗi nhóm, trong đó điểm càng cao nghĩa là mức độ tương thích với nhóm đó càng lớn):
+- Realistic (Thực tế - R): ${scores.R || 0}/15
+- Investigative (Nghiên cứu - I): ${scores.I || 0}/15
+- Artistic (Nghệ thuật - A): ${scores.A || 0}/15
+- Social (Xã hội - S): ${scores.S || 0}/15
+- Enterprising (Kinh doanh/Quản lý - E): ${scores.E || 0}/15
+- Conventional (Nghiệp vụ/Hành chính - C): ${scores.C || 0}/15
+
+Thông tin thí sinh: ${userInfo ? JSON.stringify(userInfo) : "Thí sinh tự do"}
+
+Danh sách các ngành đào tạo thực tế hiện có của trường Đại học Vinh:
+${majorsDataStr}
+
+Hãy viết một báo cáo phân tích hướng nghiệp chi tiết, chất lượng cao, định dạng bằng Markdown đẹp mắt (sử dụng các tiêu đề, danh sách, in đậm, emoji bắt mắt) gồm các phần sau:
+1. **Phân tích nhóm tính cách nổi trội (Holland Code)**: Xác định mã Holland của thí sinh (ví dụ: SEC, IAS...), giải thích ý nghĩa tính cách, ưu điểm vượt trội và xu hướng nghề nghiệp chung của nhóm này.
+2. **Gợi ý ngành học tại Đại học Vinh**: Đề xuất cụ thể 2-3 ngành học trong danh sách trên của Đại học Vinh phù hợp nhất với kết quả này. Với mỗi ngành học gợi ý, cần làm nổi bật:
+   - Tên ngành & Mã ngành.
+   - Lý do chi tiết tại sao ngành này cực kỳ phù hợp với điểm số trắc nghiệm và nhóm tính cách của bạn (kết hợp phân tích năng lực và sở thích).
+   - Cơ hội nghề nghiệp tiêu biểu sau khi tốt nghiệp.
+3. **Lời khuyên & Lộ trình rèn luyện**: Lời khuyên định hướng học tập, phát triển kỹ năng mềm cần thiết để phát huy tối đa điểm mạnh tính cách này.
+
+Lưu ý:
+- Phải phản hồi hoàn toàn bằng tiếng Việt tự nhiên, truyền cảm hứng, chuyên nghiệp và lịch sự.
+- Các ngành học được khuyên dùng BẮT BUỘC phải nằm trong danh sách ngành học thực tế của Đại học Vinh đã được cung cấp ở trên. Không tự ý gợi ý ngành học mà trường không đào tạo.
+- Sử dụng cách xưng hô thân thiện: "Bạn"/"Em" và "Chuyên gia tư vấn"/"Heulwen AI".`;
+
+      const ai = getGeminiClient();
+      let response;
+      let lastError;
+      const modelsToTry = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
+
+      for (const modelName of modelsToTry) {
+        try {
+          console.log(`[Holland AI] Querying model ${modelName}...`);
+          response = await ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+              temperature: 0.7
+            }
+          });
+          if (response) {
+            console.log(`[Holland AI] Successfully generated report using model ${modelName}`);
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`[Holland AI] Model ${modelName} failed:`, err.message || err);
+          lastError = err;
+        }
+      }
+
+      if (!response) {
+        throw lastError || new Error("All Gemini models failed to analyze Holland test.");
+      }
+
+      const analysis = response.text || "Không thể phân tích dữ liệu trắc nghiệm lúc này. Vui lòng thử lại.";
+      res.json({ analysis });
+    } catch (error: any) {
+      console.error("Error in Holland recommendation API:", error);
+      res.status(500).json({ error: "Internal server error: " + error.message });
+    }
+  });
+
+  // ----------------------------------------
+  // AI PROFILE ANALYSIS API
+  // ----------------------------------------
+  app.post("/api/recommendations/profile-analysis", async (req: Request, res: Response) => {
+    try {
+      const { gpa10, gpa11, gpa12, examScores, ielts, awards, schoolType } = req.body;
+
+      const prompt = `Bạn là một chuyên gia tư vấn tuyển sinh cao cấp của Trường Đại học Vinh.
+Hãy phân tích hồ sơ học tập THPT của thí sinh dưới đây và đánh giá độ mạnh/thế mạnh (%) của hồ sơ này đối với 3 nhóm phương thức tuyển sinh chính:
+1. **Xét học bạ (academicRecord)**: Dựa vào GPA lớp 10, 11, 12.
+2. **Xét điểm thi tốt nghiệp THPT (nationalExam)**: Dựa vào điểm thi tốt nghiệp THPT dự kiến/thi thử của 3 môn.
+3. **Xét tuyển thẳng & Kết hợp chứng chỉ (specialAdmission)**: Dựa vào trường chuyên/thường, chứng chỉ tiếng Anh (IELTS/VSTEP), và giải thưởng HSG/KHKT.
+
+Dữ liệu hồ sơ của thí sinh:
+- Điểm trung bình GPA lớp 10: ${gpa10}/10
+- Điểm trung bình GPA lớp 11: ${gpa11}/10
+- Điểm trung bình GPA lớp 12: ${gpa12}/10
+- Điểm thi tốt nghiệp THPT dự kiến/thi thử 3 môn:
+  * Môn 1: ${examScores?.subject1 || 0}/10
+  * Môn 2: ${examScores?.subject2 || 0}/10
+  * Môn 3: ${examScores?.subject3 || 0}/10
+  * Tổng điểm 3 môn: ${(parseFloat(examScores?.subject1) || 0) + (parseFloat(examScores?.subject2) || 0) + (parseFloat(examScores?.subject3) || 0)}/30
+- Chứng chỉ tiếng Anh: ${ielts === "none" ? "Không có" : ielts}
+- Giải thưởng học thuật: ${awards === "none" ? "Không có" : awards === "national_hsg" ? "Giải HSG Quốc gia" : awards === "provincial_hsg" ? "Giải HSG cấp Tỉnh" : "Giải Cuộc thi Khoa học Kỹ thuật"}
+- Loại hình trường THPT: ${schoolType === "specialized" ? "Trường THPT Chuyên" : "Trường THPT Thường"}
+
+Hãy tính toán điểm số thế mạnh (%) từ 0 đến 100 cho 3 nhóm phương thức này.
+Yêu cầu trả về định dạng JSON chuẩn với các khóa:
+{
+  "scores": {
+    "academicRecord": số_nguyên_từ_0_đến_100,
+    "nationalExam": số_nguyên_từ_0_đến_100,
+    "specialAdmission": số_nguyên_từ_0_đến_100
+  },
+  "analysis": "Báo cáo tư vấn chi tiết viết bằng định dạng Markdown bằng tiếng Việt tự nhiên, gồm các phần: Đánh giá tổng quan hồ sơ (đặc biệt nhấn mạnh điểm cộng nếu học trường chuyên, có chứng chỉ IELTS/VSTEP, đạt giải HSG), phân tích cụ thể cơ hội của từng phương thức xét tuyển, chiến thuật phân bổ nguyện vọng khuyên dùng, và khuyến cáo tuyển sinh."
+}
+
+Lưu ý: Chỉ trả về JSON nguyên bản, không thêm các ký tự bao bọc hay văn bản mô tả nào khác ngoài khối JSON.`;
+
+      const ai = getGeminiClient();
+      let response;
+      let lastError;
+      const modelsToTry = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
+
+      for (const modelName of modelsToTry) {
+        try {
+          console.log(`[Profile Analysis AI] Querying model ${modelName}...`);
+          response = await ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+              responseMimeType: "application/json",
+              temperature: 0.7
+            }
+          });
+          if (response) {
+            console.log(`[Profile Analysis AI] Successfully generated report using model ${modelName}`);
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`[Profile Analysis AI] Model ${modelName} failed:`, err.message || err);
+          lastError = err;
+        }
+      }
+
+      if (!response) {
+        throw lastError || new Error("All Gemini models failed to analyze profile.");
+      }
+
+      const jsonText = response.text || "{}";
+      const resultData = JSON.parse(jsonText.trim());
+      res.json(resultData);
+    } catch (error: any) {
+      console.error("Error in Profile Analysis API:", error);
+      res.status(500).json({ error: "Internal server error: " + error.message });
+    }
+  });
+
+  // ----------------------------------------
   // FAQS API
   // ----------------------------------------
   app.get("/api/faqs", (req: Request, res: Response) => {
@@ -431,11 +1187,7 @@ async function startServer() {
   // ----------------------------------------
   // ADMISSION REGISTRATIONS API
   // ----------------------------------------
-  app.get("/api/admission", (req: Request, res: Response) => {
-    // Return all student registrations (mapped for general UI queries)
-    const students = readRegistrations();
-    res.json(students);
-  });
+
 
   app.get("/api/scholarships", (req: Request, res: Response) => {
     res.json(VINH_UNI_SCHOLARSHIPS);
@@ -445,471 +1197,56 @@ async function startServer() {
     res.json(GENERAL_ENROLL_GUIDELINES);
   });
 
-  // Search registrations
-  app.post("/api/registrations/search", (req: Request, res: Response) => {
-    const { keyword } = req.body;
-    if (!keyword || typeof keyword !== "string" || keyword.trim() === "") {
-      res.status(400).json({ error: "Vui lòng nhập họ tên hoặc số CCCD/CMND để tra cứu." });
-      return;
-    }
 
-    const term = keyword.trim().toLowerCase();
-    const students = readRegistrations();
-    
-    const matches = students.filter(
-      (s) =>
-        s.fullName.toLowerCase().includes(term) ||
-        s.identityCard.includes(term) ||
-        s.phone.includes(term) ||
-        s.id.toLowerCase() === term
-    );
-
-    res.json({ results: matches });
-  });
-
-  // Submit candidate registration
-  app.post("/api/registrations/register", (req: Request, res: Response) => {
-    try {
-      const { fullName, email, phone, identityCard, highschool, selectedMajor, method, score } = req.body;
-
-      if (!fullName || !email || !phone || !identityCard || !selectedMajor || !method || score === undefined) {
-        res.status(400).json({ error: "Vui lòng điền đầy đủ tất cả thông tin đăng ký bắt buộc." });
-        return;
-      }
-
-      const majors = readMajors();
-      const major = majors.find((m) => m.code === selectedMajor);
-      if (!major) {
-        res.status(400).json({ error: "Ngành học lựa chọn không tồn tại hệ thống tuyển sinh." });
-        return;
-      }
-
-      const students = readRegistrations();
-
-      // Check if duplicate identity card exists
-      const duplicate = students.find((s) => s.identityCard === identityCard && s.selectedMajor === selectedMajor);
-      if (duplicate) {
-        res.status(400).json({ 
-          error: `Học sinh này đã đăng ký nguyện vọng ngành ${major.name} trên hệ thống trước đó.` 
-        });
-        return;
-      }
-
-      // Generate TS identifier
-      const lastId = students.length > 0 ? students[students.length - 1].id : "TS26-0000";
-      const numberPart = parseInt(lastId.split("-")[1]) + 1;
-      const newId = `TS26-${numberPart.toString().padStart(4, "0")}`;
-
-      const registeredDate = new Date().toISOString();
-
-      // Calculate initial admission status
-      let initialStatus = "pending";
-      // Let's check target score
-      const targetScore = major.score_2024 || 22.0;
-      
-      if (score >= targetScore + 1.0) {
-        initialStatus = "approved"; 
-      } else if (score >= targetScore - 1.0) {
-        initialStatus = "accepted";
-      } else {
-        initialStatus = "action_required";
-      }
-
-      const methodText = 
-          method === "thpt" ? "Xét điểm thi THPT 2026" :
-          method === "academic-record" ? "Xét học bạ THPT" :
-          method === "national-exam" ? "Xét tuyển Đánh giá năng lực" : "Tuyển thẳng";
-
-      const confirmationEmailBody = `
-        <h3>CHÀO BẠN ${fullName.toUpperCase()},</h3>
-        <p>Hội đồng Tuyển sinh Trường Đại học Vinh đã nhận được hồ sơ Nguyện vọng Trực tuyến của bạn với mã hồ sơ: <strong>${newId}</strong>.</p>
-        <table border="1" cellpadding="8" style="border-collapse: collapse; width: 100%; border-color: #e2e8f0;">
-          <tr style="background-color: #f8fafc;"><td><strong>Họ và tên thí sinh:</strong></td><td>${fullName}</td></tr>
-          <tr><td><strong>Số CCCD:</strong></td><td>${identityCard}</td></tr>
-          <tr style="background-color: #f8fafc;"><td><strong>Số điện thoại:</strong></td><td>${phone}</td></tr>
-          <tr><td><strong>Ngành đăng ký:</strong></td><td>${major.name} (${major.code})</td></tr>
-          <tr style="background-color: #f8fafc;"><td><strong>Phương thức tuyển:</strong></td><td>${methodText}</td></tr>
-          <tr><td><strong>Điểm quy đổi:</strong></td><td>${score} điểm</td></tr>
-        </table>
-        <p>Hồ sơ đã được lưu trữ thành công trên Hệ thống Quản trị tuyển sinh. Chuyên viên đang thẩm định và sẽ phản hồi trong 2-3 ngày làm việc.</p>
-        <small>Đây là email thông báo tự động. Vui lòng liên hệ Hotline 0238 3855 452 nếu cần sửa đổi thông tin.</small>
-      `;
-
-      const resultEmailBody = `
-        <h3>KẾT QUẢ XÉT TUYỂN CHÍNH THỨC - ĐẠI HỌC VINH</h3>
-        <p>Chào bạn ${fullName}, Hội đồng Tuyển sinh trân trọng thông báo trạng thái hồ sơ tuyển sinh mã <strong>${newId}</strong>:</p>
-        <div style="padding: 15px; background-color: #f0fdf4; border-left: 5px solid #22c55e; margin: 15px 0;">
-          <p style="margin: 0; font-size: 16px; color: #15803d; font-weight: bold;">
-            ${initialStatus === "approved" ? "🎉 ĐỦ ĐIỀU KIỆN TRÚNG TUYỂN" : 
-              initialStatus === "accepted" ? "✔️ TIẾP NHẬN HỒ SƠ THÀNH CÔNG" : "⚠️ CẦN BỔ SUNG MINH CHỨNG HỌC BẠ"}
-          </p>
-        </div>
-        <p><strong>Chi tiết khuyến nghị của ban tuyển sinh:</strong></p>
-        <ul>
-          ${initialStatus === "approved" ? `
-            <li>Chào mừng bạn đến với mái nhà chung Đại học Vinh ngành <strong>${major.name}</strong>.</li>
-            <li>Vui lòng chuẩn bị hồ sơ giấy bao gồm: Giấy chứng nhận tốt nghiệp tạm thời, Bản sao học bạ công chứng và gửi chuyển phát nhanh về Trường Đại học Vinh trước ngày 30/08/2026.</li>
-          ` : initialStatus === "accepted" ? `
-            <li>Hồ sơ của bạn đã vượt qua vòng sơ loại ban đầu.</li>
-            <li>Hội đồng đang kiểm định điểm thi thực tế. Vui lòng đăng nhập trang thông tin để tải về giấy hẹn nộp hồ sơ trực tiếp.</li>
-          ` : `
-            <li>Điểm số đăng ký của bạn đang nằm sát ngưỡng điểm chuẩn của ngành <strong>${major.name}</strong>.</li>
-            <li>Để tăng cơ hội đỗ, vui lòng gửi kèm ảnh chứng minh học bạ cả năm lớp 12 bổ sung qua link tuyển sinh trực tuyến càng sớm càng tốt.</li>
-          `}
-        </ul>
-        <p>Mọi thắc mắc xin vui lòng gửi về hòm thư điện tử <strong>tuyensinh@vinhuni.edu.vn</strong>.</p>
-      `;
-
-      const emailLogs: EmailLog[] = [
-        {
-          type: "CONFIRMATION",
-          subject: "Xác nhận tiếp nhận hồ sơ đăng ký nguyện vọng trực tuyến - Vinh Uni",
-          sentAt: registeredDate,
-          status: "success",
-          bodyPreview: confirmationEmailBody
-        }
-      ];
-
-      if (initialStatus === "approved" || initialStatus === "action_required") {
-        emailLogs.push({
-          type: "RESULT",
-          subject: "Thông báo kết quả xét tuyển nguyện vọng trực tuyến - Đại Học Vinh",
-          sentAt: new Date(new Date().getTime() + 10000).toISOString(),
-          status: "success",
-          bodyPreview: resultEmailBody
-        });
-      }
-
-      const newStudent: Registration = {
-        id: newId,
-        fullName,
-        email,
-        phone,
-        identityCard,
-        highschool: highschool || "Trường THPT Đợt xét tuyển tự do",
-        selectedMajor,
-        method,
-        score: Number(score),
-        status: initialStatus,
-        registeredAt: registeredDate,
-        emailLogs
-      };
-
-      students.push(newStudent);
-      writeRegistrations(students);
-
-      res.status(201).json({
-        success: true,
-        message: "Đăng ký nguyện vọng trực tuyến thành công!",
-        registration: newStudent
-      });
-    } catch (e: any) {
-      console.error(e);
-      res.status(500).json({ error: "Có lỗi xảy ra khi gửi hồ sơ nguyện vọng: " + e.message });
-    }
-  });
-
-  // Upload document
-  app.post("/api/registrations/:id/upload-document", (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { name, type, size } = req.body;
-
-      if (!name || !type) {
-        res.status(400).json({ error: "Thiếu thông tin giấy tờ tệp tin tải lên." });
-        return;
-      }
-
-      const students = readRegistrations();
-      const studentIdx = students.findIndex((s) => s.id === id);
-
-      if (studentIdx === -1) {
-        res.status(404).json({ error: "Không tìm thấy hồ sơ tuyển sinh tương ứng." });
-        return;
-      }
-
-      const student = students[studentIdx];
-      if (!student.documents) {
-        student.documents = [];
-      }
-
-      const exists = student.documents.some((d) => d.name === name);
-      if (exists) {
-        res.status(400).json({ error: "Tệp tin này đã được tải lên trước đó." });
-        return;
-      }
-
-      const docTypeLabel =
-        type === "transcript" ? "Học bạ THPT (Số hóa)" :
-        type === "diploma" ? "Bằng tốt nghiệp tạm thời" :
-        type === "award" ? "Giấy chứng nhận giải thưởng" : "Giấy tờ tùy thân khác";
-
-      const newDoc = {
-        name,
-        type,
-        uploadedAt: new Date().toISOString(),
-        size: size || "450 KB"
-      };
-
-      student.documents.push(newDoc);
-
-      const docEmailBody = `
-        <h3>HỘI ĐỒNG TUYỂN SINH VINH UNI - XÁC NHẬN NHẬN GIẤY TỜ</h3>
-        <p>Chào bạn ${student.fullName},</p>
-        <p>Hệ thống tự động đã ghi nhận tệp tài liệu số hóa vừa được bạn tải lên thành công để bổ sung vào hồ sơ tuyển sinh mã số: <strong>${student.id}</strong>.</p>
-        <div style="padding: 12px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin: 15px 0;">
-          <p style="margin: 0;"><strong>Tên file:</strong> ${name}</p>
-          <p style="margin: 0;"><strong>Loại tài liệu:</strong> ${docTypeLabel}</p>
-          <p style="margin: 0;"><strong>Dung lượng:</strong> ${size}</p>
-          <p style="margin: 0;"><strong>Thời gian ghi nhận:</strong> ${new Date().toLocaleString("vi-VN")}</p>
-        </div>
-        <p>Ban giám khảo ban tuyển sinh sẽ tiến hành đối chiếu tệp số hóa này trực tiếp cùng thông tin điểm thi bạn đã đăng ký để phê duyệt học bạ nhanh chóng nhất.</p>
-        <p>Xin trân trọng thông báo!</p>
-      `;
-
-      student.emailLogs.unshift({
-        type: "CONFIRMATION",
-        subject: `[XÁC NHẬN] Đã tiếp nhận tệp minh chứng: ${name} từ Thí sinh - Vinh Uni`,
-        sentAt: new Date().toISOString(),
-        status: "success",
-        bodyPreview: docEmailBody
-      });
-
-      if (student.status === "action_required" || student.status === "pending") {
-        student.status = "processing";
-      }
-
-      writeRegistrations(students);
-
-      res.json({
-        success: true,
-        message: "Tải lên giấy tờ minh chứng thành công!",
-        registration: student
-      });
-    } catch (e: any) {
-      console.error(e);
-      res.status(500).json({ error: "Gặp sự cố khi nộp thêm giấy tờ: " + e.message });
-    }
-  });
-
-  // Admin update status endpoint
-  app.post("/api/registrations/update-status", (req: Request, res: Response) => {
-    try {
-      const { registrationId, newStatus } = req.body;
-
-      if (!registrationId || !newStatus) {
-        res.status(400).json({ error: "Thông tin mã hồ sơ hoặc trạng thái mới bị thiếu." });
-        return;
-      }
-
-      const students = readRegistrations();
-      const studentIdx = students.findIndex((s) => s.id === registrationId);
-
-      if (studentIdx === -1) {
-        res.status(404).json({ error: "Không tìm thấy hồ sơ thí sinh cần cập nhật tuyển thuật." });
-        return;
-      }
-
-      const student = students[studentIdx];
-      student.status = newStatus;
-
-      let statusLabel = "";
-      let statusColor = "";
-      let statusDetailAdvice = "";
-
-      if (newStatus === "approved") {
-        statusLabel = "ĐỦ ĐIỀU KIỆN TRÚNG TUYỂN CHÍNH THỨC";
-        statusColor = "#15803d font-weight: bold;";
-        statusDetailAdvice = `
-          <li>Hồ sơ học bạ số của em đã vượt qua kiểm duyệt tuyệt đối và chính thức <strong>ĐỦ ĐIỀU KIỆN TRÚNG TUYỂN</strong> vào Trường Đại học Vinh.</li>
-          <li>Chúc mừng tân sinh viên! Em hãy chuẩn bị Học bạ gốc THPT bản gốc, Bản sao bằng tốt nghiệp công chứng gửi chuyển phát nhanh về Trường Đại học Vinh trước ngày 30/08/2026 để nhận giấy báo nhập học bản cứng có dấu đỏ.</li>
-        `;
-      } else if (newStatus === "processing") {
-        statusLabel = "ĐANG TRONG TIẾN TRÌNH XỬ LÝ KIỂM TRA HỒ SƠ";
-        statusColor = "#1d4ed8 font-weight: bold;";
-        statusDetailAdvice = `
-          <li>Hồ sơ của em đã hoàn thành tích hợp bổ sung và hội đồng hiện đã chuyển trạng thái sang <strong>ĐANG XỬ LÝ THẨM ĐỊNH CHI TIẾT</strong>.</li>
-          <li>Ban khảo thí đang tiến hành so khớp điểm trung bình học thuật của em đối với cơ sở dữ liệu điểm trung học phổ thông quốc gia. Vui lòng giữ liên lạc điện thoại phòng khi cần phỏng vấn xác minh.</li>
-        `;
-      } else if (newStatus === "action_required") {
-        statusLabel = "CẦN BỔ SUNG MINH CHỨNG HỌC BẠ / GIẤY TỜ THI THPT";
-        statusColor = "#b91c1c font-weight: bold;";
-        statusDetailAdvice = `
-          <li>Hồ sơ đăng ký của em có điểm hoặc thông tin chưa rõ ràng hoặc thiếu tệp tin học bạ đính kèm.</li>
-          <li><strong>Hành động bắt buộc:</strong> Vui lòng truy cập cổng "Tra cứu hồ sơ" trên trang tuyển sinh của Đại Học Vinh, nhấn vào mục quản lý tài liệu và tiến hành tải lên ảnh chụp hai mặt học bạ lớp 12 hoặc ảnh chụp điểm thi THPT chính thức để hội đồng tiếp tục xếp duyệt.</li>
-        `;
-      } else if (newStatus === "accepted") {
-        statusLabel = "TIẾP NHẬN HỒ SƠ THÀNH CÔNG VÀ LƯU TRỮ HỢP LỆ";
-        statusColor = "#2563eb font-weight: bold;";
-        statusDetailAdvice = `
-          <li>Hồ sơ của em đã được ghi nhận trạng thái <strong>TIẾP NHẬN LƯU TRỮ HỢP LỆ</strong> trên cơ sở dữ liệu Đại học Vinh.</li>
-          <li>Thông tin điểm số và nguyện vọng của em đang nằm ở danh mục an toàn để chờ thẩm định theo thứ tự nộp sớm.</li>
-        `;
-      } else {
-        statusLabel = "CHỜ PHÊ DUYỆT TỪ KHỐI PHÒNG KHẢO THÍ";
-        statusColor = "#d97706 font-weight: bold;";
-        statusDetailAdvice = `
-          <li>Trạng thái hồ sơ được xếp lớp vào danh sách <strong>ĐANG CHỜ HỘI ĐỒNG VÀ PHÒNG KHẢO THÍ DUYỆT TẬP TRUNG</strong>.</li>
-          <li>Thông tin bổ sung sẽ cập nhật sớm ngay tại trang tra cứu.</li>
-        `;
-      }
-
-      const updateEmailBody = `
-        <h3>[THÔNG BÁO] TRẠNG THÁI HỒ SƠ TUYỂN SINH ĐÃ ĐƯỢC CẬP NHẬT</h3>
-        <p>Chào bạn ${student.fullName},</p>
-        <p>Hội đồng Tuyển sinh Trường Đại học Vinh xin thông báo kết quả thẩm định mới nhất của hồ sơ mang mã số: <strong>${student.id}</strong>.</p>
-         
-        <div style="padding: 15px; background-color: #f8fafc; border-left: 5px solid ${newStatus === 'approved' ? '#22c55e' : newStatus === 'action_required' ? '#ef4444' : '#3b82f6'}; margin: 15px 0;">
-          <p style="margin: 0; font-size: 14px; color: ${statusColor}">
-            Trạng thái mới: <strong>${statusLabel}</strong>
-          </p>
-          <p style="margin: 5px 0 0 0; font-size: 11px; color: #64748b;">
-            Cập nhật ngày: ${new Date().toLocaleString("vi-VN")}
-          </p>
-        </div>
-
-        <p><strong>Khuyến nghị cụ thể từ ban tuyển sinh:</strong></p>
-        <ul style="line-height: 1.6; font-size: 12px; color: #334155;">
-          ${statusDetailAdvice}
-        </ul>
-
-        <p>Mọi thắc mắc vui lòng truy vấn trực tiếp qua trợ lý AI ở góc phải màn hình của website tuyển sinh hoặc gọi trực tiếp Hotline 0238.3855.452.</p>
-        <p>Trân trọng chúc em gặt hái kết quả xuất sắc!</p>
-        <small style="color: #94a3b8; font-size: 10px;">Vinh University Admissions Department 2026</small>
-      `;
-
-      student.emailLogs.unshift({
-        type: "STATUS_UPDATE",
-        subject: `[CẬP NHẬT] Sự thay đổi trạng thái Hồ sơ mã số ${student.id} - Đại Học Vinh`,
-        sentAt: new Date().toISOString(),
-        status: "success",
-        bodyPreview: updateEmailBody
-      });
-
-      writeRegistrations(students);
-
-      res.json({
-        success: true,
-        message: "Cập nhật kết quả tuyển sinh thành công!",
-        registration: student
-      });
-    } catch (e: any) {
-      console.error(e);
-      res.status(500).json({ error: "Có lỗi xảy ra khi cập nhật hồ sơ: " + e.message });
-    }
-  });
-
-  // Admin CRUD for admissions
-  app.put("/api/admission/:id", (req: Request, res: Response) => {
-    const { id } = req.params;
-    const students = readRegistrations();
-    const idx = students.findIndex(s => s.id === id);
-    if (idx === -1) {
-      res.status(404).json({ error: "Registration not found" });
-      return;
-    }
-    students[idx] = { ...students[idx], ...req.body };
-    writeRegistrations(students);
-    res.json(students[idx]);
-  });
-
-  app.delete("/api/admission/:id", (req: Request, res: Response) => {
-    const { id } = req.params;
-    const students = readRegistrations();
-    const filtered = students.filter(s => s.id !== id);
-    writeRegistrations(filtered);
-    res.json({ success: true });
-  });
 
   // ----------------------------------------
   // REALTIME REPORTS ANALYTICS API
   // ----------------------------------------
   app.get("/api/analytics", (req: Request, res: Response) => {
-    const students = readRegistrations();
-    const majors = readMajors();
+    try {
+      const majors = readMajors();
+      const faqs = readFAQs();
+      const posts = readPosts();
+      const users = readUsers();
 
-    const statusCounts = {
-      pending: 0,
-      processing: 0,
-      accepted: 0,
-      approved: 0,
-      action_required: 0
-    };
-    
-    const methodCounts: Record<string, number> = {
-      "thpt": 0,
-      "academic-record": 0,
-      "national-exam": 0,
-      "direct": 0
-    };
-
-    const majorRegistrationCounts: Record<string, { count: number; name: string; code: string; seats: number }> = {};
-    majors.forEach((m) => {
-      majorRegistrationCounts[m.code] = {
-        count: 0,
+      const activeMajors = majors.filter(m => m.is_active);
+      const sortedByQuota = [...activeMajors]
+        .sort((a, b) => b.quota - a.quota)
+        .slice(0, 10);
+      const majorChartData = sortedByQuota.map(m => ({
         name: m.name,
         code: m.code,
-        seats: m.quota
-      };
-    });
+        "Chỉ tiêu": m.quota
+      }));
 
-    let scoreSum = 0;
-    let scoreTotalNum = 0;
+      const categoryCounts: Record<string, number> = {};
+      activeMajors.forEach(m => {
+        categoryCounts[m.category] = (categoryCounts[m.category] || 0) + 1;
+      });
+      const colors = ["#C8A951", "#1A3A6B", "#10b981", "#6366f1", "#f59e0b", "#ef4444"];
+      const categoryChartData = Object.keys(categoryCounts).map((cat, idx) => ({
+        name: cat,
+        value: categoryCounts[cat],
+        fill: colors[idx % colors.length]
+      }));
 
-    students.forEach((s) => {
-      const st = s.status as keyof typeof statusCounts;
-      if (statusCounts[st] !== undefined) statusCounts[st]++;
-      if (methodCounts[s.method] !== undefined) methodCounts[s.method]++;
-      if (majorRegistrationCounts[s.selectedMajor]) {
-        majorRegistrationCounts[s.selectedMajor].count++;
-      }
-      if (s.score > 0) {
-        const normalizedScore = s.score > 150 ? (s.score / 1200) * 30 : s.score;
-        scoreSum += normalizedScore;
-        scoreTotalNum++;
-      }
-    });
-
-    const averageNormalizedScore = scoreTotalNum > 0 ? Number((scoreSum / scoreTotalNum).toFixed(2)) : 0;
-
-    const statusChartData = [
-      { name: "Đã duyệt/Trúng tuyển", value: statusCounts.approved, color: "#10b981" },
-      { name: "Đang thẩm định", value: statusCounts.processing, color: "#3b82f6" },
-      { name: "Đã tiếp nhận", value: statusCounts.accepted, color: "#6366f1" },
-      { name: "Chờ phê duyệt", value: statusCounts.pending, color: "#f59e0b" },
-      { name: "Cần bổ sung thông tin", value: statusCounts.action_required, color: "#ef4444" }
-    ];
-
-    const methodChartData = [
-      { name: "Xét điểm THPT", value: methodCounts.thpt || 0, fill: "#8884d8" },
-      { name: "Xét tuyển Học bạ", value: methodCounts["academic-record"] || 0, fill: "#82ca9d" },
-      { name: "Đánh giá năng lực", value: methodCounts["national-exam"] || 0, fill: "#ffc658" },
-      { name: "Tuyển thẳng", value: methodCounts.direct || 0, fill: "#ff8042" }
-    ];
-
-    const majorChartData = Object.values(majorRegistrationCounts)
-      .map((item) => ({
-        name: item.name,
-        code: item.code,
-        "Số hồ sơ": item.count,
-        "Chỉ tiêu": item.seats
-      }))
-      .sort((a, b) => b["Số hồ sơ"] - a["Số hồ sơ"]);
-
-    res.json({
-      summary: {
-        totalRegistrations: students.length,
-        approvedTotal: statusCounts.approved,
-        actionRequiredTotal: statusCounts.action_required,
-        pendingTotal: statusCounts.pending,
-        averageScores: averageNormalizedScore
-      },
-      charts: {
-        statusDistribution: statusChartData,
-        methodDistribution: methodChartData,
-        majorDistribution: majorChartData
-      }
-    });
+      res.json({
+        summary: {
+          totalRegistrations: activeMajors.length, // Display in center of pie chart
+          approvedTotal: faqs.filter(f => f.is_active).length,
+          actionRequiredTotal: posts.length,
+          pendingTotal: users.length,
+          averageScores: 0
+        },
+        charts: {
+          statusDistribution: [],
+          methodDistribution: categoryChartData,
+          majorDistribution: majorChartData
+        }
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // ----------------------------------------
@@ -1092,7 +1429,7 @@ async function startServer() {
           user.google_id = profile.sub;
           updated = true;
         }
-        if (profile.picture && !user.picture) {
+        if (profile.picture && profile.picture !== user.picture) {
           user.picture = profile.picture;
           updated = true;
         }
@@ -1340,13 +1677,452 @@ async function startServer() {
     }
     users[idx].role = role;
     writeUsers(users);
-    res.json(users[idx]);
+    res.json({ success: true, user: users[idx] });
   });
+ 
+  // ----------------------------------------
+  // DOCUMENTS MANAGEMENT API
+  // ----------------------------------------
+  app.get("/api/documents", (req: Request, res: Response) => {
+    const docs = readDocuments();
+    // Omit embedding values for lightweight JSON response
+    const safeDocs = docs.map(d => ({
+      id: d.id,
+      original_name: d.original_name,
+      file_name: d.file_name,
+      created_at: d.created_at,
+      issued_at: d.issued_at,
+      is_outdated: d.is_outdated,
+      chunk_count: d.chunk_count
+    }));
+    res.json(safeDocs);
+  });
+
+  app.get("/api/documents/:id", (req: Request, res: Response) => {
+    const { id } = req.params;
+    const docs = readDocuments();
+    const doc = docs.find(d => d.id === id);
+    if (!doc) {
+      res.status(404).json({ error: "Không tìm thấy tài liệu" });
+      return;
+    }
+    const textToShow = doc.full_text || doc.chunks.map(c => c.text).join("\n\n");
+    res.json({
+      id: doc.id,
+      original_name: doc.original_name,
+      file_name: doc.file_name,
+      created_at: doc.created_at,
+      issued_at: doc.issued_at,
+      is_outdated: doc.is_outdated,
+      chunk_count: doc.chunk_count,
+      full_text: textToShow
+    });
+  });
+
+  app.post("/api/documents", uploadDocument.single("file"), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        res.status(400).json({ error: "Không tìm thấy tệp tải lên. Vui lòng chọn tệp và thử lại." });
+        return;
+      }
+
+      // Decode filename to UTF-8 to handle Vietnamese characters properly
+      const originalName = Buffer.from(req.file.originalname, "latin1").toString("utf8");
+
+      console.log(`[Upload] Processing document upload: ${originalName} (${req.file.mimetype})`);
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const ext = path.extname(originalName).toLowerCase();
+      let fullText = "";
+
+      if (ext === ".pdf") {
+        fullText = await extractTextFromPdf(fileBuffer);
+      } else if (ext === ".docx") {
+        fullText = await extractTextFromDocx(fileBuffer);
+      } else if (ext === ".txt") {
+        fullText = await extractTextFromTxt(fileBuffer);
+      } else {
+        res.status(400).json({ error: "Chỉ hỗ trợ các định dạng tệp .pdf, .docx, .txt" });
+        return;
+      }
+
+      if (!fullText || fullText.trim().length === 0) {
+        res.status(400).json({ error: "Tài liệu trống hoặc không thể trích xuất văn bản." });
+        return;
+      }
+
+      // Auto extract date from document text
+      const extractedDate = await extractDateFromText(fullText);
+      console.log(`[Upload] Extracted date for document: ${extractedDate}`);
+
+      const chunks = chunkText(fullText);
+      console.log(`[Upload] Chunked document into ${chunks.length} segments.`);
+
+      if (chunks.length === 0) {
+        res.status(400).json({ error: "Tài liệu quá ngắn để phân mảnh và vector hóa." });
+        return;
+      }
+
+      // Generate embeddings
+      const embeddings = await generateEmbeddingsForChunks(chunks);
+      console.log(`[Upload] Generated ${embeddings.length} embeddings.`);
+
+      const docChunks = chunks.map((text, idx) => ({
+        text,
+        embedding: embeddings[idx]
+      }));
+
+      const newDoc: AIDocument = {
+        id: "doc_" + Date.now(),
+        original_name: originalName,
+        file_name: req.file.filename,
+        full_text: fullText,
+        created_at: new Date().toISOString(),
+        issued_at: extractedDate,
+        is_outdated: false,
+        chunk_count: chunks.length,
+        chunks: docChunks
+      };
+
+      const allDocs = readDocuments();
+      allDocs.push(newDoc);
+
+      // Re-evaluate outdated flags for all docs based on newest issued_at date
+      const maxDate = allDocs.reduce((max, d) => d.issued_at > max ? d.issued_at : max, "0000-00-00");
+      allDocs.forEach(d => {
+        d.is_outdated = d.issued_at < maxDate;
+      });
+
+      // Update newDoc outdated status in memory for response
+      const updatedNewDoc = allDocs.find(d => d.id === newDoc.id);
+      if (updatedNewDoc) {
+        newDoc.is_outdated = updatedNewDoc.is_outdated;
+      }
+
+      writeDocuments(allDocs);
+      console.log(`[Upload] Successfully saved document: ${newDoc.original_name}. Outdated status: ${newDoc.is_outdated}`);
+
+      // If the document is the newest one (not outdated), trigger automatic database sync for majors!
+      if (!newDoc.is_outdated) {
+        console.log(`[Upload] Document is the newest. Triggering automatic database sync for majors...`);
+        updateMajorsFromDocumentText(fullText).catch(err => {
+          console.error("Error syncing database from upload:", err);
+        });
+      }
+
+      res.status(201).json({
+        id: newDoc.id,
+        original_name: newDoc.original_name,
+        created_at: newDoc.created_at,
+        issued_at: newDoc.issued_at,
+        is_outdated: newDoc.is_outdated,
+        chunk_count: newDoc.chunk_count
+      });
+    } catch (e: any) {
+      console.error("[Upload] Document upload failed:", e);
+      res.status(500).json({ error: "Lỗi xử lý tài liệu: " + e.message });
+    }
+  });
+
+  app.delete("/api/documents/:id", (req: Request, res: Response) => {
+    const { id } = req.params;
+    let docs = readDocuments();
+    const filtered = docs.filter(d => d.id !== id);
+
+    if (filtered.length > 0) {
+      const maxDate = filtered.reduce((max, d) => d.issued_at > max ? d.issued_at : max, "0000-00-00");
+      filtered.forEach(d => {
+        d.is_outdated = d.issued_at < maxDate;
+      });
+    }
+
+    writeDocuments(filtered);
+    console.log(`[Delete] Deleted document ID: ${id}`);
+    res.json({ success: true });
+  });
+
+  // Helper for offline keyword-matching fallback when API is rate-limited
+  function generateOfflineFallbackReply(userMessage: string, majors: any[], scholarships: any[]): string | null {
+    const msg = userMessage.toLowerCase();
+    
+    // 1. Identify matched major
+    let matchedMajor: any = null;
+    for (const major of majors) {
+      const nameLower = major.name.toLowerCase();
+      // Match by full name, code, or common abbreviations
+      const isIT = nameLower.includes("công nghệ thông tin") && (msg.includes("cntt") || msg.includes("it") || msg.includes("tin học"));
+      const isTeacher = nameLower.includes("sư phạm") && msg.includes("sư phạm");
+      
+      if (msg.includes(major.code) || msg.includes(nameLower) || isIT) {
+        matchedMajor = major;
+        break;
+      }
+    }
+
+    // 2. Intent-based offline replies
+    if (msg.includes("chỉ tiêu") || msg.includes("chi tieu")) {
+      if (matchedMajor) {
+        return `Chào em! Theo thông tin mới nhất từ Ban Tuyển sinh Trường Đại học Vinh, chỉ tiêu tuyển sinh năm 2026 của ngành **${matchedMajor.name}** (Mã ngành: **${matchedMajor.code}**) là **${matchedMajor.quota}** chỉ tiêu.\n\nTổ hợp môn xét tuyển gồm: ${matchedMajor.admission_groups}. Em có thể đăng ký trực tuyến xét tuyển ngay trên website này nhé!`;
+      }
+    }
+
+    if (msg.includes("học phí") || msg.includes("hoc phi") || msg.includes("tiền học") || msg.includes("nộp tiền")) {
+      if (matchedMajor) {
+        const formattedTuition = matchedMajor.tuition_per_year > 0 
+          ? `${matchedMajor.tuition_per_year.toLocaleString('vi-VN')} VNĐ/năm` 
+          : "Đang cập nhật (Miễn học phí theo Nghị định 116 đối với ngành Sư phạm)";
+        return `Chào em! Học phí dự kiến năm học 2026 của ngành **${matchedMajor.name}** tại Trường Đại học Vinh là khoảng **${formattedTuition}**. Thời gian đào tạo của ngành này là ${matchedMajor.duration_years} năm.`;
+      }
+    }
+
+    if (msg.includes("điểm chuẩn") || msg.includes("diem chuan") || msg.includes("điểm tuyển sinh") || msg.includes("lấy bao nhiêu")) {
+      if (matchedMajor) {
+        return `Chào em! Điểm trúng tuyển ngành **${matchedMajor.name}** (Mã ngành: **${matchedMajor.code}**) năm gần nhất (2025) theo các phương thức như sau:\n- **Xét theo Học bạ THPT (2025)**: ${matchedMajor.score_2023} điểm\n- **Xét theo Điểm thi THPT (2025)**: ${matchedMajor.score_2024} điểm\n\nTổ hợp xét tuyển của ngành này là: ${matchedMajor.admission_groups}. Em hãy ôn tập thật tốt để đạt kết quả cao nhé!`;
+      }
+    }
+
+    if (msg.includes("học bổng") || msg.includes("hoc bong") || msg.includes("chính sách")) {
+      return `Chào em! Trường Đại học Vinh luôn có nhiều chính sách học bổng hấp dẫn dành cho tân sinh viên năm 2026:\n- **Học bổng tài năng**: Miễn 100% học phí học kỳ 1 cho thí sinh đạt điểm cao môn xét tuyển.\n- **Ngành Sư phạm**: Miễn 100% học phí và hỗ trợ sinh hoạt phí 3.63 triệu đồng/tháng theo Nghị định 116.\n- **Học bổng khuyến khích**: Xét duyệt dựa trên kết quả học tập xuất sắc mỗi kỳ.\n\nEm có thể vào trang chủ -> Chọn mục "Học bổng" để xem chi tiết điều kiện nhé!`;
+    }
+
+    if (msg.includes("đăng ký") || msg.includes("dang ky") || msg.includes("nộp hồ sơ") || msg.includes("nop ho so")) {
+      return `Chào em! Để đăng ký xét tuyển vào Trường Đại học Vinh năm 2026, em thực hiện theo các chỉ dẫn sau:\n1. Xem chi tiết Lịch trình và Hồ sơ cần chuẩn bị tại mục **"Tuyển sinh"** trên trang web này.\n2. Đăng ký nguyện vọng chính thức trực tuyến trên Cổng thông tin của Bộ Giáo dục & Đào tạo.\n3. Chuẩn bị và nộp minh chứng học bạ/chứng chỉ số đối với các phương thức xét tuyển sớm theo đúng thời hạn quy chế.`;
+    }
+
+    // General major info fallback
+    if (matchedMajor) {
+      const formattedTuition = matchedMajor.tuition_per_year > 0 
+        ? `${matchedMajor.tuition_per_year.toLocaleString('vi-VN')} VNĐ/năm` 
+        : "Đang cập nhật (Miễn học phí theo Nghị định 116 đối với ngành Sư phạm)";
+      return `Chào em! Dưới đây là thông tin tuyển sinh tóm tắt của ngành **${matchedMajor.name}** (Mã ngành: **${matchedMajor.code}**) tại Trường Đại học Vinh:\n- **Chỉ tiêu tuyển sinh**: ${matchedMajor.quota} chỉ tiêu\n- **Tổ hợp xét tuyển**: ${matchedMajor.admission_groups}\n- **Điểm chuẩn thi THPT 2025**: ${matchedMajor.score_2024} điểm\n- **Điểm chuẩn học bạ 2025**: ${matchedMajor.score_2023} điểm\n- **Học phí dự kiến**: ${formattedTuition}\n- **Thời gian đào tạo**: ${matchedMajor.duration_years} năm\n\nEm có thể hỏi chi tiết hơn để được Heulwen AI tư vấn chuyên sâu nhé!`;
+    }
+
+    return null;
+  }
+
+  // ----------------------------------------
+  // LIVE CHAT API ENDPOINTS
+  // ----------------------------------------
+  
+  // 1. Initialize live chat session (User)
+  app.post("/api/live-chats", async (req: Request, res: Response) => {
+    try {
+      const { name, email } = req.body;
+      if (!name || !email) {
+        res.status(400).json({ error: "Vui lòng nhập tên và email để bắt đầu." });
+        return;
+      }
+      
+      const chats = readLiveChats();
+      
+      // Check if there is an active session for this user/email already
+      let activeSession = chats.find(c => c.user_email === email && c.status !== "resolved");
+      
+      if (!activeSession) {
+        activeSession = {
+          id: `chat_${Date.now()}`,
+          user_name: name,
+          user_email: email,
+          status: "waiting",
+          assigned_staff_id: null,
+          assigned_staff_name: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          messages: [
+            {
+              sender: "user",
+              senderName: name,
+              content: "Thí sinh đã kết nối với hàng chờ live chat. Xin chào cán bộ tuyển sinh!",
+              timestamp: new Date().toISOString()
+            }
+          ]
+        };
+        chats.push(activeSession);
+        writeLiveChats(chats);
+        
+        // Notify staff (Email/Pushover)
+        let appUrl = process.env.APP_URL || "";
+        if (!appUrl || appUrl.includes("localhost")) {
+          const host = req.get("host") || "localhost:3000";
+          const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+          appUrl = `${protocol}://${host}`;
+        }
+        const chatUrl = `${appUrl}/admin`;
+        
+        sendNotificationToStaff(
+          `[Live Chat Vinh Uni] Thí sinh ${name} đang chờ hỗ trợ`,
+          `Thí sinh <strong>${name}</strong> (${email}) đã tham gia hàng đợi hỗ trợ trực tuyến tuyển sinh Vinh Uni.`,
+          chatUrl
+        );
+      }
+      
+      res.json({ session: activeSession });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 2. Get active and waiting sessions (Admin/Staff)
+  app.get("/api/live-chats/active", (req: Request, res: Response) => {
+    try {
+      const chats = readLiveChats();
+      const activeChats = chats.filter(c => c.status !== "resolved");
+      res.json(activeChats);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 3. Get detailed messages of a session (User & Staff polling)
+  app.get("/api/live-chats/:id", (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const chats = readLiveChats();
+      const session = chats.find(c => c.id === id);
+      
+      if (!session) {
+        res.status(404).json({ error: "Phiên chat không tồn tại hoặc đã bị đóng." });
+        return;
+      }
+      
+      res.json({ session });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 4. Send message to a session (User & Staff)
+  app.post("/api/live-chats/:id/messages", (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { sender, senderName, content } = req.body;
+      
+      if (!sender || !senderName || !content) {
+        res.status(400).json({ error: "Thiếu thông tin gửi tin nhắn." });
+        return;
+      }
+      
+      if (sender === "user") {
+        const ip = req.ip || req.headers["x-forwarded-for"] || "unknown";
+        const validation = checkSpamAndSensitive(Array.isArray(ip) ? ip[0] : ip, content);
+        if (validation.isViolating) {
+          res.status(400).json({ error: validation.reason });
+          return;
+        }
+      }
+      
+      const chats = readLiveChats();
+      const sessionIndex = chats.findIndex(c => c.id === id);
+      
+      if (sessionIndex === -1) {
+        res.status(404).json({ error: "Phiên chat không tồn tại." });
+        return;
+      }
+      
+      const session = chats[sessionIndex];
+      const newMsg: LiveChatMessage = {
+        sender,
+        senderName,
+        content,
+        timestamp: new Date().toISOString()
+      };
+      
+      session.messages.push(newMsg);
+      session.updated_at = new Date().toISOString();
+      
+      writeLiveChats(chats);
+      res.json({ success: true, message: newMsg, session });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5. Claim/Accept a session (Staff concurrency lock check)
+  app.post("/api/live-chats/:id/claim", (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { staffId, staffName } = req.body;
+      
+      if (!staffId || !staffName) {
+        res.status(400).json({ error: "Thiếu thông tin cán bộ tiếp nhận." });
+        return;
+      }
+      
+      const chats = readLiveChats();
+      const sessionIndex = chats.findIndex(c => c.id === id);
+      
+      if (sessionIndex === -1) {
+        res.status(404).json({ error: "Phiên chat không tồn tại." });
+        return;
+      }
+      
+      const session = chats[sessionIndex];
+      
+      // Concurrency check
+      if (session.assigned_staff_id && session.assigned_staff_id !== staffId) {
+        res.status(409).json({ 
+          error: `Cán bộ ${session.assigned_staff_name} đã tiếp nhận hỗ trợ cuộc trò chuyện này trước đó!` 
+        });
+        return;
+      }
+      
+      // Claim the session
+      session.assigned_staff_id = staffId;
+      session.assigned_staff_name = staffName;
+      session.status = "active";
+      session.updated_at = new Date().toISOString();
+      
+      // System message
+      session.messages.push({
+        sender: "staff",
+        senderName: "Hệ thống",
+        content: `Cán bộ tuyển sinh ${staffName} đã tham gia hỗ trợ cuộc trò chuyện này.`,
+        timestamp: new Date().toISOString()
+      });
+      
+      writeLiveChats(chats);
+      res.json({ success: true, session });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 6. Complete/Resolve session (Staff)
+  app.post("/api/live-chats/:id/resolve", (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const chats = readLiveChats();
+      const sessionIndex = chats.findIndex(c => c.id === id);
+      
+      if (sessionIndex === -1) {
+        res.status(404).json({ error: "Phiên chat không tồn tại." });
+        return;
+      }
+      
+      const session = chats[sessionIndex];
+      session.status = "resolved";
+      session.updated_at = new Date().toISOString();
+      
+      session.messages.push({
+        sender: "staff",
+        senderName: "Hệ thống",
+        content: `Cuộc trò chuyện đã được kết thúc bởi cán bộ hỗ trợ.`,
+        timestamp: new Date().toISOString()
+      });
+      
+      writeLiveChats(chats);
+      res.json({ success: true, session });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
 
   // ----------------------------------------
   // GEMINI CHATBOT API (/api/chats)
   // ----------------------------------------
   app.post("/api/chats", async (req: Request, res: Response) => {
+    let userMessage = "";
     try {
       const { messages } = req.body;
 
@@ -1355,15 +2131,116 @@ async function startServer() {
         return;
       }
 
-      const currentRegistrations = readRegistrations();
+      userMessage = messages[messages.length - 1]?.content || "";
+      const ip = req.ip || req.headers["x-forwarded-for"] || "unknown";
+      const validation = checkSpamAndSensitive(Array.isArray(ip) ? ip[0] : ip, userMessage);
+      if (validation.isViolating) {
+        res.json({ reply: `⚠️ [Cảnh báo Hệ thống]: ${validation.reason}` });
+        return;
+      }
+
       const majors = readMajors();
       const publishedPosts = readPosts().filter(p => p.status === "published");
       const ai = getGeminiClient();
 
-      // Build published articles context for grounding
-      const articlesContext = publishedPosts.length > 0
-        ? `\n\nBÀI VIẾT TIN TỨC & THÔNG BÁO ĐÃ XUẤT BẢN TRÊN CỔNG TUYỂN SINH:\n${publishedPosts.map(p => `- [${p.category}] ${p.title} (${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('vi-VN') : 'N/A'}):\n  ${p.content}`).join('\n\n')}`
-        : '';
+      // Build dynamic context based on user message keywords to keep prompt size optimized
+      const userMessageLower = userMessage.toLowerCase();
+      let dynamicContext = "";
+
+      // 1. Majors context
+      const needsMajors = userMessageLower.includes("ngành") || 
+                           userMessageLower.includes("học gì") || 
+                           userMessageLower.includes("khoa") || 
+                           userMessageLower.includes("điểm chuẩn") || 
+                           userMessageLower.includes("xét tuyển") || 
+                           userMessageLower.includes("tổ hợp");
+      if (needsMajors) {
+        dynamicContext += `\n\nDANH SÁCH CÁC NGÀNH ĐÀO TẠO & ĐIỂM CHUẨN NỔI BẬT:\n${JSON.stringify(majors, null, 2)}`;
+      } else {
+        dynamicContext += `\n\nTrường đào tạo nhiều ngành học thuộc các lĩnh vực: Sư phạm, Công nghệ thông tin, Kinh tế, Kỹ thuật, Ngoại ngữ, Luật, Y dược,... (Nếu thí sinh hỏi cụ thể ngành học nào hoặc điểm chuẩn ngành đó, bạn hãy hướng dẫn chi tiết).`;
+      }
+
+      // 2. Scholarships context
+      const needsScholarships = userMessageLower.includes("học bổng") || 
+                                 userMessageLower.includes("miễn phí") || 
+                                 userMessageLower.includes("hỗ trợ") || 
+                                 userMessageLower.includes("nghị định 116") || 
+                                 userMessageLower.includes("tiền");
+      if (needsScholarships) {
+        dynamicContext += `\n\nDANH SÁCH CHI TIẾT HỌC BỔNG VÀ ĐIỀU KIỆN:\n${JSON.stringify(VINH_UNI_SCHOLARSHIPS, null, 2)}`;
+      }
+
+      // 4. Articles / News context
+      const needsArticles = userMessageLower.includes("tin tức") || 
+                             userMessageLower.includes("thông báo") || 
+                             userMessageLower.includes("bài viết") || 
+                             userMessageLower.includes("sự kiện") || 
+                             userMessageLower.includes("hoạt động") || 
+                             userMessageLower.includes("mới nhất");
+      if (needsArticles && publishedPosts.length > 0) {
+        dynamicContext += `\n\nBÀI VIẾT TIN TỨC & THÔNG BÁO ĐÃ XUẤT BẢN TRÊN CỔNG TUYỂN SINH:\n${publishedPosts.map(p => `- [${p.category}] ${p.title} (${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('vi-VN') : 'N/A'}):\n  ${p.content}`).join('\n\n')}`;
+      }
+ 
+      // 5. Document Semantic Context (RAG)
+      const allDocs = readDocuments();
+      let docContext = "";
+      let hasRagContext = false;
+      if (allDocs.length > 0) {
+        try {
+          const queryEmbedding = await generateEmbedding(userMessage).catch(() => null);
+          if (queryEmbedding) {
+            interface ScoredChunk {
+              text: string;
+              docId: string;
+              docName: string;
+              issuedAt: string;
+              isOutdated: boolean;
+              score: number;
+              similarity: number;
+            }
+            const scoredChunks: ScoredChunk[] = [];
+
+            allDocs.forEach(doc => {
+              doc.chunks.forEach(chunk => {
+                const sim = cosineSimilarity(queryEmbedding, chunk.embedding);
+                // Combined score: 75% similarity + 25% recency bonus (not outdated)
+                const score = sim * 0.75 + (doc.is_outdated ? 0 : 0.25);
+                scoredChunks.push({
+                  text: chunk.text,
+                  docId: doc.id,
+                  docName: doc.original_name,
+                  issuedAt: doc.issued_at,
+                  isOutdated: doc.is_outdated,
+                  score,
+                  similarity: sim
+                });
+              });
+            });
+
+            // Sort by combined score descending
+            scoredChunks.sort((a, b) => b.score - a.score);
+
+            // Take top 5 relevant chunks (similarity threshold > 0.35)
+            const relevantChunks = scoredChunks.filter(c => c.similarity > 0.35).slice(0, 5);
+
+            if (relevantChunks.length > 0) {
+              hasRagContext = true;
+              console.log(`[RAG] Found ${relevantChunks.length} relevant chunks from documents.`);
+              docContext = "\n\nTÀI LIỆU TUYỂN SINH THAM KHẢO THÊM (Được tìm kiếm theo ngữ nghĩa):\n" + 
+                relevantChunks.map(c => {
+                  const statusLabel = c.isOutdated 
+                    ? `[TÀI LIỆU CŨ - Ban hành ngày ${c.issuedAt}]` 
+                    : `[TÀI LIỆU MỚI NHẤT - Ban hành ngày ${c.issuedAt}]`;
+                  return `${statusLabel} (Nguồn: [${c.docName}](/document/${c.docId})):\n${c.text}`;
+                }).join("\n\n");
+              
+              dynamicContext += docContext;
+            }
+          }
+        } catch (ragError) {
+          console.error("[RAG] Semantic search failed:", ragError);
+        }
+      }
 
       const systemInstruction = `
         Bạn là "Trợ lý Tuyển sinh AI Vinh Uni" - nhân viên văn phòng tư vấn tuyển sinh tự động 24/7 của Trường Đại học Vinh.
@@ -1373,41 +2250,23 @@ async function startServer() {
         - Địa chỉ: 182 đường Lê Duẩn, thành phố Vinh, tỉnh Nghệ An.
         - Hotline: 0238 3855 452 | Email: tuyensinh@vinhuni.edu.vn | Website: https://vinhuni.edu.vn
         
-        DANH SÁCH CÁC NGÀNH ĐÀO TẠO & ĐIỂM CHUẨN NỔI BẬT:
-        ${JSON.stringify(majors, null, 2)}
-
-        DANH SÁCH CHI TIẾT HỌC BỔNG VÀ ĐIỀU KIỆN:
-        ${JSON.stringify(VINH_UNI_SCHOLARSHIPS, null, 2)}
-        ${articlesContext}
-
         QUY TRÌNH HƯỚNG DẪN ĐĂNG KÝ NGUYỆN VỌNG TRỰC TUYẾN TRÊN WEBSITE:
         1. Truy cập trang "Thông tin tuyển sinh" và chọn tab "Đăng ký nguyện vọng".
         2. Điền đầy đủ thông tin: Họ tên, Email, CCCD, Số điện thoại, trường THPT, chọn ngành đăng ký, phương thức xét tuyển và nhập điểm quy đổi.
         3. Gửi hồ sơ. Hệ thống sẽ ngay lập tức gửi Email tự động xác nhận hồ sơ và kết quả xét tuyển sơ bộ về hòm thư của học sinh trong vòng vài giây.
 
         TRA CỨU HỒ SƠ & TRẠNG THÁI:
-        Mỗi khi học sinh hỏi về trạng thái hồ sơ của họ, hãy hướng dẫn họ vào trang "Thông tin tuyển sinh" -> tab "Tra cứu kết quả" để tìm kiếm nhanh bằng CCCD hoặc Tên. Bạn cũng có thể cung cấp thông tin ngắn nếu thấy kết quả trùng khớp trong danh sách học sinh đã tuyển này:
-        Học sinh đã đăng ký trên hệ thống hiện tại:
-        ${JSON.stringify(
-          currentRegistrations.map((s) => ({
-            id: s.id,
-            fullName: s.fullName,
-            identityCard: s.identityCard,
-            selectedMajor: s.selectedMajor,
-            status: s.status,
-            registeredAt: s.registeredAt
-          })),
-          null,
-          2
-        )}
+        Mỗi khi học sinh hỏi về trạng thái hồ sơ của họ, hãy hướng dẫn họ vào trang "Thông tin tuyển sinh" -> tab "Tra cứu kết quả" để tìm kiếm nhanh bằng CCCD hoặc Tên.
+        ${dynamicContext}
 
         HƯỚNG DẪN TRẢ LỜI:
-        1. Luôn chào hỏi thân thiện, văn phong lịch sự, ấm áp miền Trung pha trộn với quốc tế. Xưng hô là "Vinh Uni" hoặc "Trợ lý Tuyển sinh Đại học Vinh" và gọi người học là "bạn", "em" hoặc "quý phụ huynh".
+        1. Luôn chào hỏi trang trọng, văn phong chuẩn mực, lịch sự và chuyên nghiệp. Xưng hô là "Trường Đại học Vinh" hoặc "Ban Tuyển sinh Trường Đại học Vinh" và gọi người học là "Quý phụ huynh", "Thí sinh" hoặc "Em".
         2. Nếu thí sinh hỏi điểm chuẩn ngành, hãy so sánh điểm 2023 và 2024 để đưa ra dự báo tin cậy và khuyên họ học tập chăm chỉ.
         3. Khuyến khích học sinh đăng ký trực tuyến bằng cách hướng dẫn họ điền form ngay trên trang web này.
         4. Đối với các ngành Sư phạm, nhấn mạnh chính sách miễn học phí và hỗ trợ sinh hoạt phí theo Nghị định 116.
-        5. Trả lời luôn bằng định dạng MARKDOWN dễ đọc, tạo gạch đầu dòng rõ ràng, bảng biểu nếu cần. Tránh câu cú dông dài và dùng từ ngữ dễ thương để tạo thiện cảm cực tốt với học sinh thế hệ Gen Z!
-        6. Nếu câu hỏi của người dùng liên quan đến thông tin thời sự, tin tức tuyển sinh bên ngoài, hoặc các dữ liệu bạn không có sẵn trong ngữ cảnh trên, hãy sử dụng công cụ Google Search để tra cứu và trả lời dựa trên kết quả tìm kiếm thực tế.
+        5. Trả lời bằng định dạng MARKDOWN rõ ràng, mạch lạc, có cấu trúc gạch đầu dòng hoặc bảng biểu nếu cần thiết. Khi trích dẫn thông tin lấy từ nguồn tài liệu tham khảo, bạn BẮT BUỘC phải đính kèm nguyên văn link Markdown của tài liệu đó (ví dụ: [Chỉ tiêu tuyển sinh.docx](/document/doc_xxx)) đúng như định dạng đường link được cung cấp ở phần Nguồn trong ngữ cảnh để người dùng có thể nhấp vào xem trực tiếp. Tuyệt đối giữ thái độ nghiêm túc, chuẩn mực của một cơ quan giáo dục, tránh dùng các từ ngữ quá bình dân, tiếng lóng hay biểu cảm (emoji) quá đà.
+        6. Nếu câu hỏi của người dùng liên quan đến thông tin thời sự, tin tức tuyển sinh bên ngoài Bộ GD&ĐT năm 2026, hoặc các sự kiện/con số tuyển sinh mới mà không có trong dữ liệu văn bản trên (ví dụ: quy chế thi THPT 2026, thời tiết, các tin tức thời sự,...), BẠN BẮT BUỘC phải sử dụng công cụ Google Search để tra cứu và trả lời dựa trên kết quả tìm kiếm thực tế. Không được tự bịa ra thông tin hoặc nói không biết nếu chưa tìm kiếm qua công cụ Search.
+        7. ĐỐI VỚI CÁC CÂU HỎI NGOÀI LỀ, KHÔNG LIÊN QUAN: Hãy lịch sự từ chối trả lời, nêu rõ vai trò là Trợ lý Tuyển sinh hỗ trợ thông tin tuyển sinh của Trường Đại học Vinh, và hướng dẫn người học đặt các câu hỏi liên quan đến tuyển sinh, ngành đào tạo hoặc học bổng của nhà trường.
       `;
 
       // Build chat context structure
@@ -1421,48 +2280,139 @@ async function startServer() {
       });
 
       let response;
-      const modelsToTry = [
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash"
-      ];
       let lastError: any = null;
 
-      try {
-        // Try with Google Search tool first (requires paid/billing enabled API key)
-        response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents,
-          config: {
-            systemInstruction,
-            temperature: 0.7,
-            tools: [{ googleSearch: {} }]
-          }
+      // Extract user query caching retrieval
+      const cachedLinks = readCachedLinks();
+
+      // Check if user message matches any cached query or URL/Title keyword
+      const matchedCache = cachedLinks.find(link => {
+        if (!link.query) return false;
+        const subQueries = link.query.toLowerCase().split(",").map(q => q.trim()).filter(Boolean);
+        const normalizedMsg = userMessage.toLowerCase();
+        
+        return subQueries.some(q => {
+          const qWords = q.split(/\s+/).filter(w => w.length > 2);
+          const msgWords = normalizedMsg.split(/\s+/).filter(w => w.length > 2);
+          if (qWords.length === 0 || msgWords.length === 0) return false;
+          
+          const qMatched = qWords.filter(w => normalizedMsg.includes(w)).length;
+          const msgMatched = msgWords.filter(w => q.includes(w)).length;
+          
+          return (qMatched / qWords.length) >= 0.75 || (msgMatched / msgWords.length) >= 0.75;
         });
-      } catch (searchError: any) {
-        console.warn("Gemini Search Grounding failed, trying without Search Grounding:", searchError.message || searchError);
-        lastError = searchError;
+      });
+
+      let dynamicSystemInstruction = systemInstruction;
+
+      // If matched, inject cache content to context
+      if (matchedCache) {
+        console.log(`[Cache Hit] Found matched query link: "${userMessage}" -> ${matchedCache.url}`);
+        dynamicSystemInstruction = `${systemInstruction}\n\nTHÔNG TIN ĐÃ TRA CỨU TỪ NGUỒN NGOÀI (Được tìm thấy trước đó tại ${matchedCache.url}):\nTiêu đề: ${matchedCache.title}\nĐường dẫn nguồn: ${matchedCache.url}\nEm có thể tham khảo đường dẫn nguồn này khi tư vấn cho thí sinh.`;
       }
 
-      // If search grounding failed or threw error, try standard generation without tools on the list of models
-      if (!response) {
-        for (const modelName of modelsToTry) {
-          try {
-            console.log(`Trying model: ${modelName} without Search Grounding...`);
-            response = await ai.models.generateContent({
-              model: modelName,
-              contents,
-              config: {
-                systemInstruction,
-                temperature: 0.7
+      // 1. Try Google Search Grounding with gemini-2.5-flash-lite (single attempt, saves quota)
+      // Skip Search Grounding if cache is matched or if we already have local RAG documents to answer the question!
+      if (!matchedCache && !hasRagContext) {
+        const searchAi = getSearchGeminiClient();
+        const searchModelName = "gemini-2.5-flash-lite";
+        
+        try {
+          console.log(`Trying model with Google Search Grounding: ${searchModelName}...`);
+          const searchPromise = searchAi.models.generateContent({
+            model: searchModelName,
+            contents,
+            config: {
+              systemInstruction,
+              temperature: 0.7,
+              tools: [{ googleSearch: {} }]
+            }
+          });
+
+          const timeoutPromise = new Promise<any>((_, reject) =>
+            setTimeout(() => reject(new Error("Search Grounding client timeout")), 8000)
+          );
+
+          const searchResponse = await Promise.race([searchPromise, timeoutPromise]);
+
+          if (searchResponse) {
+            response = searchResponse;
+            console.log(`Successfully generated content using model: ${searchModelName} with Search Grounding`);
+            
+            // Debug: dump response keys to identify correct metadata path
+            console.log(`[Debug] searchResponse keys:`, Object.keys(searchResponse));
+            console.log(`[Debug] searchResponse.candidates exists:`, !!searchResponse.candidates);
+            if (searchResponse.candidates && searchResponse.candidates.length > 0) {
+              const candidate = searchResponse.candidates[0];
+              console.log(`[Debug] candidate keys:`, Object.keys(candidate));
+              console.log(`[Debug] candidate.groundingMetadata exists:`, !!candidate.groundingMetadata);
+              if (candidate.groundingMetadata) {
+                console.log(`[Debug] groundingMetadata keys:`, Object.keys(candidate.groundingMetadata));
+                console.log(`[Debug] webSearchQueries:`, JSON.stringify(candidate.groundingMetadata.webSearchQueries));
+                console.log(`[Debug] groundingChunks count:`, candidate.groundingMetadata.groundingChunks?.length || 0);
               }
-            });
-            console.log(`Successfully generated content using model: ${modelName}`);
-            break;
-          } catch (modelError: any) {
-            console.warn(`Model ${modelName} failed:`, modelError.message || modelError);
-            lastError = modelError;
+            }
+
+            // Save metadata to cache
+            const metadata = searchResponse.candidates?.[0]?.groundingMetadata;
+            if (metadata) {
+              const queries = metadata.webSearchQueries || [];
+              const chunks = metadata.groundingChunks || [];
+              saveGroundingMetadata(queries, chunks);
+            } else {
+              console.log(`[Debug] No groundingMetadata found on candidate. Trying alternate paths...`);
+              const altMetadata = (searchResponse as any).groundingMetadata;
+              console.log(`[Debug] searchResponse.groundingMetadata:`, !!altMetadata);
+              if (altMetadata) {
+                const queries = altMetadata.webSearchQueries || [];
+                const chunks = altMetadata.groundingChunks || [];
+                saveGroundingMetadata(queries, chunks);
+              }
+            }
           }
+        } catch (searchError: any) {
+          console.warn(`Search Grounding model ${searchModelName} failed/timed out:`, searchError.message || searchError);
+          lastError = searchError;
+        }
+      }
+
+      // 2. Standard generation fallback 1 (gemini-2.5-flash, standard model)
+      if (!response) {
+        const fallbackModel1 = "gemini-2.5-flash";
+        try {
+          console.log(`Trying standard fallback model 1: ${fallbackModel1}...`);
+          response = await ai.models.generateContent({
+            model: fallbackModel1,
+            contents,
+            config: {
+              systemInstruction: dynamicSystemInstruction,
+              temperature: 0.7
+            }
+          });
+          console.log(`Successfully generated standard content using model: ${fallbackModel1}`);
+        } catch (modelError: any) {
+          console.warn(`Standard fallback model 1 ${fallbackModel1} failed:`, modelError.message || modelError);
+          lastError = modelError;
+        }
+      }
+
+      // 3. Standard generation fallback 2 (gemini-2.5-flash-lite, standard lite model without search grounding)
+      if (!response) {
+        const fallbackModel2 = "gemini-2.5-flash-lite";
+        try {
+          console.log(`Trying standard fallback model 2: ${fallbackModel2}...`);
+          response = await ai.models.generateContent({
+            model: fallbackModel2,
+            contents,
+            config: {
+              systemInstruction: dynamicSystemInstruction,
+              temperature: 0.7
+            }
+          });
+          console.log(`Successfully generated standard content using model: ${fallbackModel2}`);
+        } catch (modelError: any) {
+          console.warn(`Standard fallback model 2 ${fallbackModel2} failed:`, modelError.message || modelError);
+          lastError = modelError;
         }
       }
 
@@ -1474,9 +2424,23 @@ async function startServer() {
       res.json({ reply: botReply });
     } catch (error: any) {
       console.error("Gemini server error:", error);
-      res.status(500).json({ 
+      
+      // Try local offline rule-based fallback first to avoid rate limits for common questions
+      try {
+        const currentMajors = readMajors();
+        const offlineReply = generateOfflineFallbackReply(userMessage, currentMajors, VINH_UNI_SCHOLARSHIPS);
+        if (offlineReply) {
+          console.log(`[Offline Fallback] Successfully served offline answer for: "${userMessage}"`);
+          res.json({ reply: offlineReply });
+          return;
+        }
+      } catch (fallbackErr) {
+        console.error("Offline fallback failed:", fallbackErr);
+      }
+
+      res.json({ 
         error: "Lỗi kết nối Trợ lý Tuyển sinh AI: " + error.message,
-        reply: "Chào em! Hiện tại hệ thống kết cấu AI của văn phòng tuyển sinh đang bận xử lý dữ liệu điểm thi học kì 1. Em có thể đăng ký trực tiếp nguyện vọng của mình trong tab đăng ký, hoặc liên hệ trực tiếp hotline *0238.3855.452* nhé!" 
+        reply: "Chào em! Hệ thống Trợ lý Tuyển sinh AI Vinh Uni hiện tại đang nhận được rất nhiều câu hỏi cùng lúc từ các thí sinh. Em vui lòng đợi khoảng 1 phút rồi tải lại trang và hỏi lại, hoặc có thể liên hệ trực tiếp hotline *0238.3855.452* để được hỗ trợ ngay nhé!" 
       });
     }
   });
@@ -1485,7 +2449,12 @@ async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     console.log("Starting server in development mode, hooking up Vite middleware...");
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        watch: {
+          ignored: ["**/*.json"]
+        }
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
